@@ -8,6 +8,7 @@ pub mod clock;
 pub mod db;
 pub mod hook;
 pub mod ingest;
+pub mod install;
 pub mod logfile;
 pub mod paths;
 pub mod secure_fs;

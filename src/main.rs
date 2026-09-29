@@ -76,9 +76,50 @@ fn run(cli: Cli) -> Result<()> {
             runtime.block_on(claudit::web::serve(paths, port))
         }
         Command::Reingest => not_yet_implemented("reingest"),
-        Command::Install => not_yet_implemented("install"),
-        Command::Uninstall => not_yet_implemented("uninstall"),
+        Command::Install => install(&paths),
+        Command::Uninstall => uninstall(&paths),
     }
+}
+
+fn install(paths: &Paths) -> Result<()> {
+    let exe = std::env::current_exe()?;
+    let exe = exe.canonicalize().unwrap_or(exe);
+    let command = claudit::install::hook_command(&exe);
+    let report = claudit::install::install_settings(paths, &command, &SystemClock)?;
+    let file = report.settings_file.display();
+    if !report.changed {
+        println!("claudit is already installed in {file}; nothing changed.");
+        return Ok(());
+    }
+    println!("Installed claudit's hooks in {file} (command: {command}).");
+    if let Some(backup) = &report.backup {
+        println!("Previous settings backed up to {}.", backup.display());
+    }
+    if report.raised_cleanup_from.is_some() {
+        println!(
+            "Raised cleanupPeriodDays to {} so transcripts are kept long enough to ingest.",
+            claudit::install::MIN_CLEANUP_PERIOD_DAYS
+        );
+    }
+    println!("New Claude Code sessions will now be recorded.");
+    Ok(())
+}
+
+fn uninstall(paths: &Paths) -> Result<()> {
+    let report = claudit::install::uninstall_settings(paths, &SystemClock)?;
+    let file = report.settings_file.display();
+    if !report.changed {
+        println!("claudit's hooks were not found in {file}; nothing changed.");
+        return Ok(());
+    }
+    println!(
+        "Removed claudit's hooks from {file} (cleanupPeriodDays restored if claudit raised it)."
+    );
+    if let Some(backup) = &report.backup {
+        println!("Previous settings backed up to {}.", backup.display());
+    }
+    println!("Your recorded data in {} was kept.", paths.home().display());
+    Ok(())
 }
 
 fn not_yet_implemented(command: &str) -> Result<()> {

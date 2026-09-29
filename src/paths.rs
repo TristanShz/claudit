@@ -68,6 +68,11 @@ impl Paths {
         self.logs_dir().join("claudit.log")
     }
 
+    /// What `claudit install` changed and `claudit uninstall` must restore.
+    pub fn install_state_file(&self) -> PathBuf {
+        self.home.join("install-state.json")
+    }
+
     /// Claude Code's configuration directory.
     pub fn claude_config_dir(&self) -> &Path {
         &self.claude_config_dir
