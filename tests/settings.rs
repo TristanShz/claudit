@@ -140,11 +140,17 @@ fn the_installed_command_is_recognised_as_claudit() {
 fn install_raises_retention_to_365_days_and_reports_the_previous_value() {
     let low = install::install(&settings_fixture("low_retention.json"), CMD);
     assert_eq!(low.settings["cleanupPeriodDays"], 365);
-    assert_eq!(low.raised_cleanup_from, Some(PriorCleanup::Value(json!(7))));
+    assert_eq!(
+        low.record.raised_cleanup_from,
+        Some(PriorCleanup::Value(json!(7)))
+    );
 
     let absent = install::install(&settings_fixture("minimal.json"), CMD);
     assert_eq!(absent.settings["cleanupPeriodDays"], 365);
-    assert_eq!(absent.raised_cleanup_from, Some(PriorCleanup::Absent));
+    assert_eq!(
+        absent.record.raised_cleanup_from,
+        Some(PriorCleanup::Absent)
+    );
 }
 
 #[test]
@@ -152,7 +158,7 @@ fn install_never_lowers_retention() {
     for (fixture, days) in [("high_retention.json", 1000), ("stale_claudit.json", 365)] {
         let installed = install::install(&settings_fixture(fixture), CMD);
         assert_eq!(installed.settings["cleanupPeriodDays"], days, "{fixture}");
-        assert_eq!(installed.raised_cleanup_from, None, "{fixture}");
+        assert_eq!(installed.record.raised_cleanup_from, None, "{fixture}");
     }
 }
 
@@ -163,12 +169,13 @@ fn install_then_uninstall_returns_the_original_settings() {
         "foreign_hooks.json",
         "low_retention.json",
         "high_retention.json",
+        "empty_hook_event.json",
+        "empty_hooks_object.json",
     ] {
         let original = settings_fixture(fixture);
         let installed = install::install(&original, CMD);
 
-        let restored =
-            install::uninstall(&installed.settings, installed.raised_cleanup_from.as_ref());
+        let restored = install::uninstall(&installed.settings, &installed.record);
 
         assert_eq!(restored, original, "{fixture}");
     }
@@ -221,7 +228,31 @@ fn uninstall_keeps_retention_the_user_changed_after_install() {
     let mut edited = installed.settings.clone();
     edited["cleanupPeriodDays"] = json!(90);
 
-    let restored = install::uninstall(&edited, installed.raised_cleanup_from.as_ref());
+    let restored = install::uninstall(&edited, &installed.record);
 
     assert_eq!(restored["cleanupPeriodDays"], 90);
+}
+
+#[test]
+fn reinstall_then_uninstall_keeps_the_users_empty_hook_containers() {
+    let env = common::TestEnv::new();
+    let settings_file = env.paths.claude_settings_file();
+    let original_text =
+        std::fs::read_to_string(common::fixtures_dir().join("settings/empty_hook_event.json"))
+            .unwrap();
+    std::fs::write(&settings_file, &original_text).unwrap();
+
+    install::install_settings(&env.paths, CMD, &env.clock).expect("install");
+    env.advance(chrono::Duration::seconds(5));
+    install::install_settings(&env.paths, "/opt/claudit/claudit hook", &env.clock)
+        .expect("reinstall from a moved binary");
+    env.advance(chrono::Duration::seconds(5));
+    install::uninstall_settings(&env.paths, &env.clock).expect("uninstall");
+
+    let restored: Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings_file).unwrap()).unwrap();
+    assert_eq!(
+        restored,
+        serde_json::from_str::<Value>(&original_text).unwrap()
+    );
 }

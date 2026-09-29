@@ -149,8 +149,8 @@ claudit install
   are neither modified nor reordered, and any other key is left alone;
 - it raises `cleanupPeriodDays` to 365 if it is lower (or unset: Claude Code
   defaults to 30), so a transcript is never deleted before claudit had a
-  chance to ingest it. The previous value is recorded in
-  `~/.claudit/install-state.json`.
+  chance to ingest it. The previous value, and which hook entries install
+  created, are recorded in `~/.claudit/install-state.json`.
 
 It is idempotent: running it again (for example after an upgrade, or after
 moving the binary) replaces claudit's entries rather than duplicating them.
@@ -176,7 +176,8 @@ claudit uninstall
 This removes exactly the hook entries claudit added (after another
 timestamped backup) and restores `cleanupPeriodDays` to its previous value,
 unless you changed it yourself since. An install followed by an uninstall
-leaves `settings.json` semantically identical to the original. Your archive
+leaves `settings.json` semantically identical to the original, down to hook
+lists you had left empty. Your archive
 is kept: delete `~/.claudit` to remove it, and the binary
 (`cargo uninstall claudit`, or delete it) to finish.
 
@@ -195,7 +196,7 @@ is kept: delete `~/.claudit` to remove it, and the binary
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `install-state.json`, `ingest.lock`. |
+| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `install-state.json`, `ingest.lock`, `ingest.pending`. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's configuration directory: `settings.json` and the `projects/` transcripts. Set it the same way you set it for Claude Code. |
 
 Hooks inherit Claude Code's environment, so a `CLAUDIT_HOME` set in the
@@ -204,9 +205,10 @@ shell you start Claude Code from also applies to recording.
 ### When something looks wrong
 
 Everything that fails inside the hook or a background ingest is appended to
-`~/.claudit/logs/claudit.log` (redacted, one line per error). Transcript lines
-of an unknown shape are skipped, counted and logged; the dashboard shows a
-banner when there are any.
+`~/.claudit/logs/claudit.log` (redacted, one line per error). A hook payload
+that is not valid JSON is logged and archived as raw text (redacted) instead
+of being dropped. Transcript lines of an unknown shape are skipped, counted
+and logged; the dashboard shows a banner when there are any.
 
 ## Querying the archive with SQL
 

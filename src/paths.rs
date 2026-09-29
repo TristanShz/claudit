@@ -63,6 +63,12 @@ impl Paths {
         self.home.join("ingest.lock")
     }
 
+    /// Touched by an ingest that found the lock taken, so the holder runs
+    /// again after releasing it instead of leaving that input for later.
+    pub fn ingest_pending_file(&self) -> PathBuf {
+        self.home.join("ingest.pending")
+    }
+
     /// Directory of claudit log files.
     pub fn logs_dir(&self) -> PathBuf {
         self.home.join("logs")

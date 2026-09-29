@@ -108,6 +108,9 @@ pub fn project(conn: &Connection, event: &RawEvent) -> Result<Projection> {
         "UserPromptExpansion" => user_prompt_expansion::project(conn, event),
         "SubagentStart" => subagent_start::project(conn, event),
         "SubagentStop" => subagent_stop::project(conn, event),
+        crate::spool::UNPARSED_EVENT => Ok(Projection::Malformed(
+            "hook payload was not valid JSON; archived raw".into(),
+        )),
         _ => Ok(Projection::Ignored),
     }
 }

@@ -30,7 +30,9 @@ flowchart LR
    any I/O, validates `session_id` and reads `hook_event_name`, appends one
    line to `$CLAUDIT_HOME/spool/<session_id>.jsonl` in a single `write`, and
    exits 0. It never touches the database, never writes to stdout and never
-   fails visibly: errors and panics go to `logs/claudit.log`.
+   fails visibly: errors and panics go to `logs/claudit.log`. Stdin that is
+   not valid JSON is logged and still spooled, as a JSON string of the raw
+   text, to `spool/unparsed.jsonl`, so nothing Claude Code sent is lost.
 2. **Ingest trigger.** On `Stop` and `SessionEnd` the hook also spawns
    `claudit ingest` fully detached (`setsid`, stdio on `/dev/null`, never
    waited on), so nothing heavy runs inside the hook's time budget.
@@ -82,9 +84,11 @@ flowchart LR
 | --- | --- |
 | `claudit.db` (+ `-wal`, `-shm`) | The archive. |
 | `spool/<session_id>.jsonl` | Hook payloads not yet purged, one `{"received_at": …, "payload": …}` per line. `received_at` is RFC 3339 with nanoseconds; `payload` is the untouched hook JSON. |
+| `spool/unparsed.jsonl` | Hook stdin that was not valid JSON, same format with `payload` a JSON string of the raw text. |
 | `ingest.lock` | The single-writer ingest lock. |
+| `ingest.pending` | Present when an ingest found the lock taken since the holder's last round; the holder runs again after releasing the lock. |
 | `logs/claudit.log` | `<timestamp> ERROR [<component>] <message>`, redacted. |
-| `install-state.json` | The `cleanupPeriodDays` value install replaced, for uninstall. |
+| `install-state.json` | What install changed, for uninstall (`install::InstallRecord`): the `cleanupPeriodDays` value it replaced and the hook containers (`hooks` object, event arrays) it created. |
 
 Claude Code's side (`CLAUDE_CONFIG_DIR`, default `~/.claude`) is only read,
 except `settings.json`, which `install` / `uninstall` rewrite atomically after
@@ -112,7 +116,7 @@ full pass over the transcripts finished).
 | Column | Meaning |
 | --- | --- |
 | `id` | `INTEGER PRIMARY KEY`, archive order (the replay order). |
-| `session_id`, `hook_event_name` | From the payload. |
+| `session_id`, `hook_event_name` | From the payload; `unparsed` and `claudit:unparsed` for a payload that was not valid JSON (then `payload` is its raw text as a JSON string, archived but never projected). |
 | `received_at_us` | When the hook received it. |
 | `payload` | The payload JSON, outputs dropped and secrets redacted. |
 
@@ -209,9 +213,9 @@ latest stop.
 `claudit ingest` (and the catch-up `serve` runs) is `ingest::catch_up`:
 
 1. **Lock.** Take a non-blocking `flock` on `$CLAUDIT_HOME/ingest.lock`. If
-   another ingest holds it, exit at once: that run will pick up whatever is
-   pending. The kernel releases the lock when the holder exits or crashes, so
-   it never goes stale.
+   another ingest holds it, touch `ingest.pending` and exit at once: that
+   run will pick up whatever is pending. The kernel releases the lock when
+   the holder exits or crashes, so it never goes stale.
 2. **Passes.** Run passes (spool, then transcripts) until one finds no new
    input (at most 100), so input that arrived while another run was locked
    out is never left behind.
@@ -220,7 +224,8 @@ latest stop.
    (dropping outputs and redacting, see below), append it to `raw_events`,
    project it into the derived tables, and store the new offset. Unparsable
    lines are skipped, counted and logged; payloads missing what their event
-   needs are archived but counted as unprojected.
+   needs, and payloads the hook spooled raw because they were not valid
+   JSON, are archived (redacted) but counted as unprojected.
 4. **Transcripts.** Every `<project>/<session_id>.jsonl` and
    `<project>/<session_id>/subagents/agent-<id>.jsonl` under
    `$CLAUDE_CONFIG_DIR/projects` is read the same way (offset per file, one
@@ -232,6 +237,11 @@ latest stop.
    and either its session's latest archived event is `SessionEnd`, or it has
    been idle for 24 hours (crashed sessions never send `SessionEnd`). Its
    offsets are forgotten so a resumed session starts a fresh file.
+6. **Release, then re-check.** Release the lock, then consume
+   `ingest.pending`: if it was there, a run was turned away after this
+   run's last pass had already looked at the inputs, so take the lock again
+   and go back to step 2 (the marker is also cleared when a round starts,
+   since that round's passes cover it).
 
 **Offsets.** Progress is a byte offset keyed by file identity (path +
 inode): a file replaced at the same path is read from the start, and a file
@@ -270,8 +280,9 @@ archived or projected, `sanitize_hook_payload`:
   replaces whole any string member whose name matches
   `secret|key|token|password|passwd`.
 
-Transcript text (prompts) goes through `redact_str` as soon as it is
-extracted; assistant text and tool results are never extracted. The error
+Transcript text (prompts, and each session's working directory and git
+branch) goes through `redact_str` as soon as it is extracted; assistant text
+and tool results are never extracted. The error
 log is redacted too. Sanitizing is idempotent, so it is safe to re-apply.
 
 **Reingest** (`claudit reingest`, `src/ingest/reingest.rs`) waits up to 60 s
@@ -302,7 +313,10 @@ start and an end:
 
 - **start** = `UserPromptSubmit` receive time, else the turn's first
   transcript entry; **end** = `Stop` receive time, else its last transcript
-  entry. **Wall** = end − start.
+  entry. **Wall** = end − start. The fallback applies per bound, so a turn
+  whose `UserPromptSubmit` or `Stop` hook is missing (a backfilled session,
+  a hook Claude Code failed to run, an interrupted turn) still gets a wall
+  time from its transcript.
 - The turn's main-thread tool calls (`agent_id IS NULL`, with a
   `post_at_us`) give intervals:
   - **execution** = `[post − duration_ms, post]` (or `[pre, post]` when no
@@ -321,7 +335,18 @@ start and an end:
 Consequences: parallel calls overlap instead of adding up; tool time never
 exceeds wall time; waiting excludes any instant where something was
 executing; and `model + tool + waiting + subagent = wall` exactly, per turn
-and in every aggregate. `TurnTime.segments` exposes the same partition as
+and in every aggregate.
+
+**A deliberate refinement of the spec.** The spec splits a turn into three
+parts (model = wall − tool − waiting, clamped at 0) and reports subagent
+time separately, from `subagent_runs`. claudit adds **subagent** as a fourth
+component of the same partition instead: the execution intervals of the
+turn's main-thread `Agent` / `Task` calls, with priority subagent > tool >
+waiting > model. Otherwise a turn that delegates would count the whole
+subagent run as tool time (the Agent call is a tool call) and the clamp
+would hide any overlap; with four prioritized kinds the components
+partition wall time exactly, with no clamping. Per-run subagent durations
+and tokens are still reported separately (`stats::subagents`). `TurnTime.segments` exposes the same partition as
 positioned, gap-free segments, which the session timeline draws.
 
 Aggregates (`time_breakdown`) sum turns, and assign each turn to the UTC day
@@ -382,7 +407,8 @@ Tests exercise external behavior through two seams only (see
 2. **The settings transformation.** `claudit::install::{install, uninstall}`
    are pure functions over the settings JSON: idempotent install, foreign
    hooks preserved, `cleanupPeriodDays` raised and restored, and an
-   install → uninstall round trip returning the original (`tests/settings.rs`).
+   install → uninstall round trip returning the original, empty hook
+   containers the user wrote included (`tests/settings.rs`).
 
 There are no tests on the HTTP layer or templates: they are thin adapters
 over the stats API.

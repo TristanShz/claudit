@@ -25,6 +25,7 @@ use super::offsets::{self, FileId};
 use crate::clock::{self, Clock, SystemClock};
 use crate::logfile;
 use crate::paths::Paths;
+use crate::redact;
 
 /// `meta` key: transcript lines skipped as unknown, over all runs.
 pub const META_SKIPPED_LINES: &str = "transcripts_skipped_lines";
@@ -308,7 +309,8 @@ fn parent_prompt(conn: &Connection, parent: Option<&str>) -> Result<Option<Strin
 }
 
 /// Widens the session's time span; cwd is the first seen, branch and
-/// version follow the latest entry.
+/// version follow the latest entry. The working directory and branch are
+/// free text chosen by the user, so they are redacted like prompts.
 fn upsert_session(conn: &Connection, entry: &Entry, at_us: i64) -> Result<()> {
     conn.execute(
         "INSERT INTO sessions (session_id, cwd, git_branch, version, first_at_us, last_at_us)
@@ -325,8 +327,12 @@ fn upsert_session(conn: &Connection, entry: &Entry, at_us: i64) -> Result<()> {
              last_at_us  = MAX(COALESCE(last_at_us, excluded.last_at_us), excluded.last_at_us)",
         params![
             entry.session_id,
-            entry.cwd,
-            entry.git_branch.as_deref().filter(|b| !b.is_empty()),
+            entry.cwd.as_deref().map(redact::redact_str),
+            entry
+                .git_branch
+                .as_deref()
+                .filter(|b| !b.is_empty())
+                .map(redact::redact_str),
             entry.version,
             at_us
         ],

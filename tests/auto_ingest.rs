@@ -52,6 +52,29 @@ fn an_ingest_that_cannot_take_the_lock_exits_without_ingesting() {
     assert_eq!(env.top_tools(&Filter::default())[0].calls, 1);
 }
 
+#[test]
+fn input_spooled_while_the_lock_holder_finishes_is_ingested_before_it_exits() {
+    let env = TestEnv::new();
+    // Hold the archive's write lock so the holder's pass stalls after it has
+    // listed the (empty) spool: whatever arrives now is past its last pass.
+    let blocker = env.db();
+    blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+    std::thread::scope(|scope| {
+        let holder = scope.spawn(|| env.try_ingest());
+        std::thread::sleep(StdDuration::from_millis(300));
+
+        env.hook_fixture("post_tool_use_bash.json");
+        assert_eq!(env.try_ingest(), IngestOutcome::AlreadyRunning);
+
+        blocker.execute_batch("COMMIT").unwrap();
+        assert!(matches!(holder.join().unwrap(), IngestOutcome::Ran(_)));
+    });
+
+    let ranking = env.tool_ranking(&Filter::default());
+    assert_eq!(ranking.len(), 1, "the late call was ingested: {ranking:?}");
+    assert_eq!(ranking[0].stats.calls, 1);
+}
+
 /// Spools `count` Read calls spread over three sessions.
 fn spool_reads(env: &TestEnv, count: usize) {
     for i in 0..count {

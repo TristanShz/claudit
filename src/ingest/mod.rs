@@ -125,14 +125,33 @@ fn ingest_all(conn: &mut Connection, paths: &Paths) -> Result<IngestReport> {
 }
 
 /// The ingest `claudit ingest` and `claudit serve` run: takes the
-/// single-writer lock (or returns at once if another run holds it), then
-/// runs passes until one finds no new input, so input that arrived while a
-/// competing run was locked out is never left behind. Finally purges the
-/// spool files that are no longer needed.
+/// single-writer lock (or, if another run holds it, marks input as pending
+/// for that run and returns at once), then runs passes until one finds no
+/// new input and purges the spool files no longer needed. After releasing
+/// the lock it runs again if a competing run marked input pending in the
+/// meantime, so nothing spooled just before the release waits for the next
+/// `Stop`.
 pub fn catch_up(paths: &Paths, clock: &dyn Clock) -> Result<IngestOutcome> {
-    let Some(_lock) = IngestLock::try_acquire(paths)? else {
-        return Ok(IngestOutcome::AlreadyRunning);
-    };
+    let mut total: Option<IngestReport> = None;
+    for _ in 0..MAX_PASSES {
+        let Some(held) = IngestLock::try_acquire(paths)? else {
+            lock::mark_pending(paths)?;
+            break;
+        };
+        // Input marked before this point is covered by the passes below.
+        lock::take_pending(paths)?;
+        let round = catch_up_locked(paths, clock)?;
+        total.get_or_insert_default().absorb(round);
+        drop(held);
+        if !lock::take_pending(paths)? {
+            break;
+        }
+    }
+    Ok(total.map_or(IngestOutcome::AlreadyRunning, IngestOutcome::Ran))
+}
+
+/// One locked round of [`catch_up`]: passes until idle, purge, bookkeeping.
+fn catch_up_locked(paths: &Paths, clock: &dyn Clock) -> Result<IngestReport> {
     let mut total = IngestReport::default();
     for _ in 0..MAX_PASSES {
         let pass = run(paths)?;
@@ -151,5 +170,5 @@ pub fn catch_up(paths: &Paths, clock: &dyn Clock) -> Result<IngestOutcome> {
             crate::clock::to_micros(clock.now()).to_string()
         ],
     )?;
-    Ok(IngestOutcome::Ran(total))
+    Ok(total)
 }

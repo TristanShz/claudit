@@ -3,7 +3,9 @@
 //! It stamps the payload with its receive time and appends it to the
 //! session's spool. It parses nothing beyond `session_id` and
 //! `hook_event_name`, never touches the database, never writes to stdout and
-//! never fails: every error goes to the claudit log.
+//! never fails: every error goes to the claudit log. Stdin that is not valid
+//! JSON is logged and still spooled, raw, to `spool/unparsed.jsonl`, so
+//! nothing Claude Code sent is lost.
 //!
 //! On `Stop` and `SessionEnd` it also asks its [`IngestSpawner`] to start
 //! `claudit ingest` in the background, and returns without waiting for it.
@@ -88,10 +90,19 @@ fn capture(paths: &Paths, received_at: DateTime<Utc>, mut stdin: impl Read) -> R
     stdin
         .read_to_end(&mut input)
         .context("read hook payload from stdin")?;
-    let payload = serde_json::from_slice(&input).context("hook payload is not valid JSON")?;
-    let record = SpoolRecord {
-        received_at,
-        payload,
+    let record = match serde_json::from_slice(&input) {
+        Ok(payload) => SpoolRecord {
+            received_at,
+            payload,
+        },
+        Err(err) => {
+            logfile::error(
+                paths,
+                "hook",
+                format!("hook payload is not valid JSON ({err}); spooled raw"),
+            );
+            SpoolRecord::unparsed(received_at, &input)
+        }
     };
     let event = record.hook_event_name()?.to_owned();
     spool::append(paths, &record)?;

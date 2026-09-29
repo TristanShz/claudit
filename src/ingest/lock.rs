@@ -1,6 +1,11 @@
 //! The single-writer ingest lock: an advisory `flock` on
 //! `$CLAUDIT_HOME/ingest.lock`. The kernel releases it when the holder's file
 //! is closed, including when the holder crashes, so it can never go stale.
+//!
+//! A run that finds the lock taken leaves a pending marker
+//! (`$CLAUDIT_HOME/ingest.pending`) before exiting; the holder checks for it
+//! after releasing the lock, which closes the gap between the holder's last
+//! pass and its release.
 
 use std::fs::File;
 use std::io;
@@ -35,5 +40,23 @@ impl IngestLock {
         } else {
             Err(err).with_context(|| format!("lock {}", path.display()))
         }
+    }
+}
+
+/// Records that an ingest was requested while the lock was taken.
+pub(super) fn mark_pending(paths: &Paths) -> Result<()> {
+    let path = paths.ingest_pending_file();
+    secure_fs::open_append(&path)
+        .map(drop)
+        .with_context(|| format!("create {}", path.display()))
+}
+
+/// Consumes the pending marker: true if one was there.
+pub(super) fn take_pending(paths: &Paths) -> Result<bool> {
+    let path = paths.ingest_pending_file();
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(err).with_context(|| format!("remove {}", path.display())),
     }
 }

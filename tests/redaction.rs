@@ -237,6 +237,16 @@ fn batched_tool_outputs_are_dropped_too() {
 const SESSION: &str = "3f2b8c1e-7d4a-4e5b-9c6f-1a2b3c4d5e6f";
 const PROJECT: &str = "-Users-alice-code-acme-api";
 
+/// A working directory and a branch name with secrets in them: transcript
+/// entries carry both on every line.
+fn secret_cwd() -> String {
+    format!("/Users/alice/code/{}", SECRETS[6])
+}
+
+fn secret_branch() -> String {
+    format!("fix/{}", SECRETS[2])
+}
+
 fn transcript_with_secret_prompt() -> String {
     let user = json!({
         "parentUuid": null, "isSidechain": false,
@@ -246,8 +256,8 @@ fn transcript_with_secret_prompt() -> String {
         "permissionMode": "default",
         "uuid": "f0000001-0000-4000-8000-000000000001",
         "timestamp": "2026-03-02T09:00:00.000Z",
-        "cwd": "/Users/alice/code/acme-api", "sessionId": SESSION,
-        "version": "2.1.284", "gitBranch": "main"
+        "cwd": secret_cwd(), "sessionId": SESSION,
+        "version": "2.1.284", "gitBranch": secret_branch()
     });
     let assistant = json!({
         "parentUuid": "f0000001-0000-4000-8000-000000000001", "isSidechain": false,
@@ -260,16 +270,17 @@ fn transcript_with_secret_prompt() -> String {
         },
         "uuid": "f0000002-0000-4000-8000-000000000002",
         "timestamp": "2026-03-02T09:00:05.000Z",
-        "cwd": "/Users/alice/code/acme-api", "sessionId": SESSION,
-        "version": "2.1.284", "gitBranch": "main"
+        "cwd": secret_cwd(), "sessionId": SESSION,
+        "version": "2.1.284", "gitBranch": secret_branch()
     });
     format!("{user}\n{assistant}\n")
 }
 
 /// Hook payloads carrying every secret in a prompt, a Bash command, a tool
 /// input and a tool output, a permission request, a notification, skill
-/// arguments (typed and model-invoked) and a subagent's prompt and answer;
-/// plus a transcript whose prompt carries them all.
+/// arguments (typed and model-invoked), a subagent's prompt and answer, a
+/// working directory and a payload that is not valid JSON; plus a transcript
+/// whose prompt, working directory and branch carry them.
 fn record_a_leaky_session(env: &TestEnv) {
     env.hook(&json!({
         "session_id": SESSION,
@@ -283,6 +294,7 @@ fn record_a_leaky_session(env: &TestEnv) {
         p["tool_response"]["stdout"] = Value::String(secret_text());
     });
     env.hook_fixture_with("post_tool_use_read.json", |p| {
+        p["cwd"] = Value::String(secret_cwd());
         p["tool_input"]["file_path"] = Value::String(format!("/tmp/{}", SECRETS[2]));
         p["tool_input"]["api_key"] = Value::String(SECRETS[9].to_owned());
     });
@@ -325,6 +337,7 @@ fn record_a_leaky_session(env: &TestEnv) {
         "hook_event_name": "Stop",
         "last_assistant_message": secret_text(),
     }));
+    env.hook_raw(format!("{{\"session_id\": \"{SESSION}\", {}", secret_text()).as_bytes());
     env.drop_transcript(
         &format!("{PROJECT}/{SESSION}.jsonl"),
         &transcript_with_secret_prompt(),

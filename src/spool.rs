@@ -13,7 +13,17 @@ use serde_json::Value;
 use crate::paths::Paths;
 use crate::secure_fs;
 
-/// One spooled hook event: the untouched payload plus its receive time.
+/// The pseudo session whose spool file (`spool/unparsed.jsonl`) holds
+/// payloads that were not valid JSON, so they are archived rather than lost.
+pub const UNPARSED_SESSION: &str = "unparsed";
+
+/// The pseudo event name of a payload that was not valid JSON.
+pub const UNPARSED_EVENT: &str = "claudit:unparsed";
+
+/// One spooled hook event: the untouched payload plus its receive time. A
+/// payload that was not valid JSON is kept as a JSON string of its raw text
+/// (lossily decoded as UTF-8), under [`UNPARSED_SESSION`] and
+/// [`UNPARSED_EVENT`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpoolRecord {
     /// When the hook process received the payload (nanosecond RFC 3339).
@@ -23,8 +33,24 @@ pub struct SpoolRecord {
 }
 
 impl SpoolRecord {
+    /// A record for stdin that is not valid JSON.
+    pub fn unparsed(received_at: DateTime<Utc>, raw: &[u8]) -> Self {
+        Self {
+            received_at,
+            payload: Value::String(String::from_utf8_lossy(raw).into_owned()),
+        }
+    }
+
+    /// Whether the payload was not valid JSON (see [`SpoolRecord::unparsed`]).
+    pub fn is_unparsed(&self) -> bool {
+        self.payload.is_string()
+    }
+
     /// The payload's `session_id`, validated to be safe as a file name.
     pub fn session_id(&self) -> Result<&str> {
+        if self.is_unparsed() {
+            return Ok(UNPARSED_SESSION);
+        }
         let id = self
             .payload
             .get("session_id")
@@ -43,6 +69,9 @@ impl SpoolRecord {
 
     /// The payload's `hook_event_name` (e.g. `PostToolUse`).
     pub fn hook_event_name(&self) -> Result<&str> {
+        if self.is_unparsed() {
+            return Ok(UNPARSED_EVENT);
+        }
         self.payload
             .get("hook_event_name")
             .and_then(Value::as_str)

@@ -35,6 +35,8 @@ fn hook_binary_exits_zero_and_prints_nothing_on_malformed_stdin() {
         "log: {}",
         env.log()
     );
+    env.ingest();
+    assert!(env.ingest_status().has_data, "the raw payload was archived");
 }
 
 #[test]
@@ -65,4 +67,23 @@ fn a_session_id_that_is_not_a_safe_file_name_is_rejected() {
         env.log()
     );
     assert_eq!(env.top_tools(&Filter::default()), vec![]);
+}
+
+#[test]
+fn an_unparsable_payload_is_spooled_raw_and_archived_without_projection() {
+    let env = TestEnv::new();
+
+    env.hook_raw(b"{\"hook_event_name\": \"PostToolUse\", truncated");
+    let report = env.ingest_report();
+
+    assert!(
+        env.log().contains("hook payload is not valid JSON"),
+        "log: {}",
+        env.log()
+    );
+    assert_eq!(report.events, 1, "archived: {report:?}");
+    assert_eq!(report.unprojected_events, 1, "counted: {report:?}");
+    assert_eq!(report.skipped_lines, 0, "{report:?}");
+    assert_eq!(env.tool_ranking(&Filter::default()), vec![]);
+    assert!(env.ingest_status().has_data);
 }

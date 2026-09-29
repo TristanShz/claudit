@@ -25,7 +25,10 @@ First public release.
 - **Automatic ingest**: a detached `claudit ingest` after every turn and at
   session end; incremental (byte offsets per file, partial trailing lines
   left for later), deduplicated on natural keys, and coalesced behind a
-  single-writer lock. Spool files are purged once archived.
+  single-writer lock (a run turned away by the lock leaves a marker, and the
+  holder runs again after releasing it, so late input is never stranded).
+  Spool files are purged once archived. Hook stdin that is not valid JSON is
+  logged and archived raw rather than dropped.
 - **Transcript backfill**: main-session and subagent transcripts in
   `~/.claude/projects` are ingested, including everything already on disk at
   first run. Unknown line shapes are skipped, counted and logged.
@@ -38,10 +41,16 @@ First public release.
   (only a numeric/identifier allow-list of the Agent tool's run summary is
   kept); secrets (`sk-…`, GitHub and AWS keys, bearer tokens, secret-named
   JSON members and `KEY=value` assignments) are redacted with a versioned
-  pattern list; every file is owner-only (0600/0700).
+  pattern list, in hook payloads and in transcript prompts, working
+  directories and branch names; every file is owner-only (0600/0700).
 - **Time decomposition** of every turn into model, tool, waiting-on-you and
   subagent time, with parallel calls unioned so the four always sum to the
-  wall time; waiting time and permission prompts per tool.
+  wall time; waiting time and permission prompts per tool. Subagent time is
+  a fourth component of the partition (main-thread Agent/Task execution,
+  priority subagent > tool > waiting > model), a deliberate refinement of
+  the spec's three-way split with subagents reported apart; a turn missing
+  its `UserPromptSubmit` or `Stop` hook falls back to its transcript
+  timestamps.
 - **Tool analytics**: ranking by calls, total, median and p95 duration and
   failure rate; Bash calls by leading command; MCP calls by server.
 - **Skills** by trigger (you typing `/skill` or Claude calling the Skill
@@ -56,8 +65,9 @@ First public release.
   subagents and sessions, and a session detail page with a turn timeline.
 - `claudit install` / `claudit uninstall`: add and remove claudit's hooks in
   Claude Code's user settings, with a timestamped backup, foreign hooks left
-  untouched, idempotent re-install, and `cleanupPeriodDays` raised to 365
-  (and restored on uninstall).
+  untouched, idempotent re-install, `cleanupPeriodDays` raised to 365 (and
+  restored on uninstall), and an exact round trip: uninstall drops only the
+  hook containers install created.
 - `CLAUDIT_HOME` and `CLAUDE_CONFIG_DIR` overrides; errors logged to
   `~/.claudit/logs/claudit.log`.
 - Prebuilt macOS binaries (arm64 and x86_64) published on each tag, and

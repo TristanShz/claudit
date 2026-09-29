@@ -47,13 +47,41 @@ pub enum PriorCleanup {
     Value(Value),
 }
 
+/// The hook containers (the `hooks` object, event arrays) that claudit
+/// owns: absent before install, or holding nothing but claudit's groups.
+/// Uninstall drops exactly these once emptied, so a container the user
+/// wrote, even an empty one, survives an install → uninstall round trip.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CreatedContainers {
+    /// The `hooks` object itself.
+    #[serde(default)]
+    pub hooks: bool,
+    /// Event arrays under `hooks`, by event name.
+    #[serde(default)]
+    pub events: Vec<String>,
+}
+
+/// What install changed that uninstall must undo. Kept in claudit's state
+/// file between the two.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct InstallRecord {
+    /// Set when install raised `cleanupPeriodDays`: what it was before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raised_cleanup_from: Option<PriorCleanup>,
+    /// The containers install created. `None` when unknown (no state file,
+    /// or one written by an older claudit): uninstall then drops every
+    /// container its removal empties.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<CreatedContainers>,
+}
+
 /// The result of [`install`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct Installed {
     /// The new settings.
     pub settings: Value,
-    /// Set when install raised `cleanupPeriodDays`: what it was before.
-    pub raised_cleanup_from: Option<PriorCleanup>,
+    /// What uninstall needs to restore the settings.
+    pub record: InstallRecord,
 }
 
 /// Adds claudit's hook group (running `hook_command`) to every event in
@@ -61,7 +89,8 @@ pub struct Installed {
 /// `cleanupPeriodDays` to [`MIN_CLEANUP_PERIOD_DAYS`] if it is lower.
 /// Foreign hooks and unknown keys are left untouched and in order.
 pub fn install(settings: &Value, hook_command: &str) -> Installed {
-    let mut settings = remove_claudit_hooks(settings);
+    let created = claudit_owned_containers(settings);
+    let mut settings = remove_claudit_hooks(settings, None);
     let root = as_object(&mut settings);
     let raised_cleanup_from = raise_cleanup(root);
     let hooks = root
@@ -83,16 +112,22 @@ pub fn install(settings: &Value, hook_command: &str) -> Installed {
     }
     Installed {
         settings,
-        raised_cleanup_from,
+        record: InstallRecord {
+            raised_cleanup_from,
+            created: Some(created),
+        },
     }
 }
 
-/// Removes every claudit hook entry and, when `raised_cleanup_from` is given,
-/// restores `cleanupPeriodDays` to its pre-install value (unless the user
-/// has changed it since).
-pub fn uninstall(settings: &Value, raised_cleanup_from: Option<&PriorCleanup>) -> Value {
-    let mut settings = remove_claudit_hooks(settings);
-    if let (Some(root), Some(prior)) = (settings.as_object_mut(), raised_cleanup_from) {
+/// Removes every claudit hook entry, drops the containers `record` says
+/// install created once they are empty, and restores `cleanupPeriodDays` to
+/// its pre-install value (unless the user has changed it since).
+pub fn uninstall(settings: &Value, record: &InstallRecord) -> Value {
+    let mut settings = remove_claudit_hooks(settings, record.created.as_ref());
+    if let (Some(root), Some(prior)) = (
+        settings.as_object_mut(),
+        record.raised_cleanup_from.as_ref(),
+    ) {
         restore_cleanup(root, prior);
     }
     settings
@@ -120,13 +155,6 @@ pub struct UninstallReport {
     pub changed: bool,
 }
 
-/// claudit's record of what install changed, kept under `CLAUDIT_HOME`.
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct InstallState {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    raised_cleanup_from: Option<PriorCleanup>,
-}
-
 /// Applies [`install`] to Claude Code's user settings file: backs it up,
 /// records the previous `cleanupPeriodDays` in claudit's state, then writes
 /// the new settings atomically. Does nothing if already installed.
@@ -146,19 +174,13 @@ pub fn install_settings(
         settings_file: settings_file.clone(),
         backup: None,
         changed,
-        raised_cleanup_from: installed.raised_cleanup_from.clone(),
+        raised_cleanup_from: installed.record.raised_cleanup_from.clone(),
     };
     if !changed {
         return Ok(report);
     }
-    if let Some(prior) = installed.raised_cleanup_from {
-        let mut state = read_state(paths)?;
-        // A previous install's record is older, hence the true original.
-        if state.raised_cleanup_from.is_none() {
-            state.raised_cleanup_from = Some(prior);
-            write_state(paths, &state)?;
-        }
-    }
+    let previous = read_state(paths)?;
+    write_state(paths, &merge_records(previous, installed.record, &settings))?;
     if let Some(current) = &current {
         report.backup = Some(backup(&settings_file, &current.bytes, clock)?);
     }
@@ -177,7 +199,7 @@ pub fn uninstall_settings(paths: &Paths, clock: &dyn Clock) -> Result<UninstallR
         changed: false,
     };
     if let Some(current) = read_settings(&settings_file)? {
-        let restored = uninstall(&current.value, state.raised_cleanup_from.as_ref());
+        let restored = uninstall(&current.value, &state);
         if restored != current.value {
             report.backup = Some(backup(&settings_file, &current.bytes, clock)?);
             write_settings(&settings_file, &restored)?;
@@ -264,18 +286,47 @@ fn write_settings(path: &Path, settings: &Value) -> Result<()> {
     written.with_context(|| format!("write {}", path.display()))
 }
 
-fn read_state(paths: &Paths) -> Result<InstallState> {
+/// Combines the record of an earlier install (still in the state file) with
+/// this one's. The earlier record is closer to the user's original settings:
+/// its prior `cleanupPeriodDays` wins, and its created containers stand, plus
+/// any container that was absent from `settings` and so is new this time.
+fn merge_records(
+    previous: InstallRecord,
+    current: InstallRecord,
+    settings: &Value,
+) -> InstallRecord {
+    let created = match (previous.created, current.created) {
+        (Some(mut previous), Some(current)) => {
+            let hooks = settings.get("hooks");
+            previous.hooks |= current.hooks && hooks.is_none();
+            for event in current.events {
+                let absent = hooks.and_then(|h| h.get(&event)).is_none();
+                if absent && !previous.events.contains(&event) {
+                    previous.events.push(event);
+                }
+            }
+            Some(previous)
+        }
+        (previous, current) => previous.or(current),
+    };
+    InstallRecord {
+        raised_cleanup_from: previous.raised_cleanup_from.or(current.raised_cleanup_from),
+        created,
+    }
+}
+
+fn read_state(paths: &Paths) -> Result<InstallRecord> {
     let path = paths.install_state_file();
     match fs::read(&path) {
         Ok(bytes) => {
             serde_json::from_slice(&bytes).with_context(|| format!("parse {}", path.display()))
         }
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(InstallState::default()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(InstallRecord::default()),
         Err(err) => Err(err).with_context(|| format!("read {}", path.display())),
     }
 }
 
-fn write_state(paths: &Paths, state: &InstallState) -> Result<()> {
+fn write_state(paths: &Paths, state: &InstallRecord) -> Result<()> {
     let path = paths.install_state_file();
     secure_fs::create_dir_all(paths.home())?;
     let mut file = OpenOptions::new()
@@ -325,9 +376,41 @@ pub fn is_claudit_command(command: &str) -> bool {
     file_name == "claudit" && rest.trim() == "hook"
 }
 
-/// Removes claudit's hook entries from every event, dropping groups and
-/// events that only held claudit entries. Everything else is untouched.
-fn remove_claudit_hooks(settings: &Value) -> Value {
+/// The hook containers claudit owns in `settings`, before install touches
+/// them: those absent, and those holding only claudit groups (left by an
+/// earlier install). An empty container the user wrote is not claudit's.
+fn claudit_owned_containers(settings: &Value) -> CreatedContainers {
+    let hooks = settings.get("hooks").and_then(Value::as_object);
+    let owned_event = |event: &str| match hooks.and_then(|h| h.get(event)) {
+        Some(Value::Array(groups)) => !groups.is_empty() && groups.iter().all(is_claudit_group),
+        Some(_) => false,
+        None => true,
+    };
+    let events: Vec<String> = EVENTS
+        .into_iter()
+        .filter(|event| owned_event(event))
+        .map(String::from)
+        .collect();
+    let hooks_owned = match hooks {
+        None => settings.get("hooks").is_none(),
+        Some(hooks) => {
+            !hooks.is_empty()
+                && hooks
+                    .iter()
+                    .all(|(event, groups)| groups.is_array() && owned_event(event))
+        }
+    };
+    CreatedContainers {
+        hooks: hooks_owned,
+        events,
+    }
+}
+
+/// Removes claudit's hook entries from every event, and the groups they
+/// were the only handlers of. An event array or `hooks` object left empty
+/// is dropped when `created` lists it as claudit's; with `created` unknown,
+/// when this removal emptied it. Everything else is untouched.
+fn remove_claudit_hooks(settings: &Value, created: Option<&CreatedContainers>) -> Value {
     let mut settings = settings.clone();
     let Some(root) = settings.as_object_mut() else {
         return settings;
@@ -335,10 +418,8 @@ fn remove_claudit_hooks(settings: &Value) -> Value {
     let Some(Value::Object(hooks)) = root.get_mut("hooks") else {
         return settings;
     };
-    // Only containers emptied *by this removal* go: a foreign group, event
-    // or `hooks` object that was already empty stays as the user wrote it.
     let events_before = hooks.len();
-    hooks.retain(|_, groups| {
+    hooks.retain(|event, groups| {
         let Value::Array(groups) = groups else {
             return true;
         };
@@ -351,9 +432,18 @@ fn remove_claudit_hooks(settings: &Value) -> Value {
             handlers.retain(|handler| !is_claudit_handler(handler));
             handlers.len() == before || !handlers.is_empty()
         });
-        groups.len() == groups_before || !groups.is_empty()
+        let emptied_by_removal = groups.is_empty() && groups_before > 0;
+        let drop = match created {
+            Some(created) => groups.is_empty() && created.events.iter().any(|e| e == event),
+            None => emptied_by_removal,
+        };
+        !drop
     });
-    if hooks.is_empty() && events_before > 0 {
+    let drop_hooks = match created {
+        Some(created) => hooks.is_empty() && created.hooks,
+        None => hooks.is_empty() && events_before > 0,
+    };
+    if drop_hooks {
         root.remove("hooks");
     }
     settings
@@ -387,6 +477,14 @@ fn restore_cleanup(root: &mut Map<String, Value>, prior: &PriorCleanup) {
             root.insert("cleanupPeriodDays".into(), value.clone());
         }
     }
+}
+
+/// A hook group whose every handler runs claudit.
+fn is_claudit_group(group: &Value) -> bool {
+    group
+        .get("hooks")
+        .and_then(Value::as_array)
+        .is_some_and(|handlers| !handlers.is_empty() && handlers.iter().all(is_claudit_handler))
 }
 
 fn is_claudit_handler(handler: &Value) -> bool {
