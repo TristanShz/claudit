@@ -6,9 +6,22 @@
 //! [`project`]. Each hook event type has its own handler module; to support a
 //! new event, add a module and one arm to [`project`].
 
+mod agent_tool;
+mod notification;
+mod permission_request;
 mod post_tool_use;
 mod post_tool_use_failure;
+mod pre_tool_use;
+mod session_end;
+mod session_start;
+mod skill_tool;
+mod stop;
+pub(crate) mod subagent_runs;
+mod subagent_start;
+mod subagent_stop;
 mod tool_call;
+mod user_prompt_expansion;
+mod user_prompt_submit;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -83,8 +96,33 @@ pub fn archive(conn: &Connection, event: &RawEvent) -> Result<()> {
 /// same event (duplicate delivery, reingest) never double-counts.
 pub fn project(conn: &Connection, event: &RawEvent) -> Result<Projection> {
     match event.hook_event_name.as_str() {
-        "PostToolUse" => post_tool_use::project(conn, event),
-        "PostToolUseFailure" => post_tool_use_failure::project(conn, event),
+        "PostToolUse" => project_completed_call(conn, event, post_tool_use::project),
+        "PostToolUseFailure" => project_completed_call(conn, event, post_tool_use_failure::project),
+        "PreToolUse" => pre_tool_use::project(conn, event),
+        "UserPromptSubmit" => user_prompt_submit::project(conn, event),
+        "Stop" => stop::project(conn, event),
+        "PermissionRequest" => permission_request::project(conn, event),
+        "Notification" => notification::project(conn, event),
+        "SessionStart" => session_start::project(conn, event),
+        "SessionEnd" => session_end::project(conn, event),
+        "UserPromptExpansion" => user_prompt_expansion::project(conn, event),
+        "SubagentStart" => subagent_start::project(conn, event),
+        "SubagentStop" => subagent_stop::project(conn, event),
         _ => Ok(Projection::Ignored),
     }
+}
+
+/// A completed tool call (success or failure) is a `tool_calls` row, and a
+/// Skill or Agent call is also a skill invocation or subagent run (#9).
+fn project_completed_call(
+    conn: &Connection,
+    event: &RawEvent,
+    tool_call: fn(&Connection, &RawEvent) -> Result<Projection>,
+) -> Result<Projection> {
+    let projection = tool_call(conn, event)?;
+    if projection == Projection::Applied {
+        skill_tool::project(conn, event)?;
+        agent_tool::project(conn, event)?;
+    }
+    Ok(projection)
 }

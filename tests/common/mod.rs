@@ -105,6 +105,48 @@ impl TestEnv {
         self.hook(&hook_fixture(name));
     }
 
+    /// Feeds `tests/fixtures/hooks/<name>` as received at `at`.
+    pub fn hook_fixture_at(&self, at: DateTime<Utc>, name: &str) {
+        self.at(at).hook_fixture(name);
+    }
+
+    /// Replays the hook side of fixture session `8d0c5a3e-…` (the one whose
+    /// transcripts sit under `tests/fixtures/transcripts`), with the receive
+    /// times listed in `tests/fixtures/hooks/README.md`: turn 1 waits on a
+    /// Bash permission prompt, turn 2 is a typed `/code-review` that runs a
+    /// subagent making one Read call.
+    pub fn replay_session_a_hooks(&self) {
+        self.replay_session_a_hooks_with(|_, _| {});
+    }
+
+    /// [`Self::replay_session_a_hooks`], letting `edit` change each payload
+    /// (given its fixture name) before it is fed.
+    pub fn replay_session_a_hooks_with(&self, edit: impl Fn(&str, &mut Value)) {
+        let ms = |ms: i64| t0() + Duration::milliseconds(ms);
+        for (at, name) in [
+            (-500, "session_start_startup.json"),
+            (0, "user_prompt_submit.json"),
+            (4_100, "pre_tool_use_bash.json"),
+            (4_200, "permission_request_bash.json"),
+            (10_000, "notification_permission_prompt.json"),
+            (19_900, "post_tool_use_bash_after_prompt.json"),
+            (30_300, "stop_first_turn.json"),
+            (299_990, "user_prompt_expansion_skill.json"),
+            (300_000, "user_prompt_submit_skill.json"),
+            (302_100, "pre_tool_use_agent.json"),
+            (302_200, "subagent_start.json"),
+            (306_100, "pre_tool_use_subagent_read.json"),
+            (306_900, "post_tool_use_subagent_read.json"),
+            (365_500, "subagent_stop.json"),
+            (365_600, "post_tool_use_agent_review.json"),
+            (380_300, "stop_after_subagent.json"),
+            (1_800_000, "session_end_exit.json"),
+        ] {
+            self.at(ms(at))
+                .hook_fixture_with(name, |payload| edit(name, payload));
+        }
+    }
+
     /// Feeds a fixture after letting `edit` override fields
     /// (e.g. `|p| p["tool_use_id"] = json!("toolu_other")`).
     pub fn hook_fixture_with(&self, name: &str, edit: impl FnOnce(&mut Value)) {
@@ -210,6 +252,30 @@ impl TestEnv {
 
     pub fn ingest_status(&self) -> stats::ingest_status::IngestStatus {
         stats::ingest_status::ingest_status(&self.db()).expect("ingest_status")
+    }
+
+    pub fn time_breakdown(&self, filter: &Filter) -> stats::time::TimeBreakdown {
+        stats::time::time_breakdown(&self.db(), filter).expect("time_breakdown")
+    }
+
+    pub fn turn_times(&self, filter: &Filter) -> Vec<stats::time::TurnTime> {
+        stats::time::turn_times(&self.db(), filter).expect("turn_times")
+    }
+
+    pub fn waiting_by_tool(&self, filter: &Filter) -> Vec<stats::time::ToolWaiting> {
+        stats::time::waiting_by_tool(&self.db(), filter).expect("waiting_by_tool")
+    }
+
+    pub fn skills(&self, filter: &Filter) -> Vec<stats::skills::SkillStat> {
+        stats::skills::skill_ranking(&self.db(), filter).expect("skill_ranking")
+    }
+
+    pub fn subagents(&self, filter: &Filter) -> Vec<stats::subagents::SubagentTypeStat> {
+        stats::subagents::subagent_ranking(&self.db(), filter).expect("subagent_ranking")
+    }
+
+    pub fn subagent_runs(&self, filter: &Filter) -> Vec<stats::subagents::SubagentRun> {
+        stats::subagents::subagent_runs(&self.db(), filter).expect("subagent_runs")
     }
 
     /// A connection to the archive, for calling any `claudit::stats` report.
