@@ -2,13 +2,36 @@
 name = "claudit"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Local analytics for Claude Code sessions: hook capture, SQLite archive, local dashboard"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/TristanShz/claudit"
+homepage = "https://github.com/TristanShz/claudit"
 readme = "README.md"
-keywords = ["claude", "claude-code", "analytics", "hooks"]
+keywords = ["claude", "claude-code", "analytics", "hooks", "sqlite"]
 categories = ["command-line-utilities", "development-tools"]
 build = "build.rs"
+# Everything the build needs (migrations, templates, assets, price table and
+# redaction patterns are compiled in); test fixtures stay in the repository.
+include = [
+    "/src/**/*.rs",
+    "/build.rs",
+    "/migrations/*.sql",
+    "/templates/**/*.html",
+    "/assets/*",
+    "/pricing/prices.toml",
+    "/redaction/patterns.toml",
+    "/README.md",
+    "/ARCHITECTURE.md",
+    "/CHANGELOG.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+]
+
+[lints.clippy]
+# rust-version 1.88 (askama's minimum) makes clippy suggest `is_multiple_of`
+# in src/pricing.rs. Allowed until that line is updated.
+manual_is_multiple_of = "allow"
 
 [dependencies]
 anyhow = "1.0.104"
