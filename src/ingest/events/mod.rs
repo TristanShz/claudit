@@ -6,7 +6,14 @@
 //! [`project`]. Each hook event type has its own handler module; to support a
 //! new event, add a module and one arm to [`project`].
 
+mod notification;
+mod permission_request;
 mod post_tool_use;
+mod pre_tool_use;
+mod session_end;
+mod session_start;
+mod stop;
+mod user_prompt_submit;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -78,6 +85,13 @@ pub fn archive(conn: &Connection, event: &RawEvent) -> Result<()> {
 pub fn project(conn: &Connection, event: &RawEvent) -> Result<Projection> {
     match event.hook_event_name.as_str() {
         "PostToolUse" => post_tool_use::project(conn, event),
+        "PreToolUse" => pre_tool_use::project(conn, event),
+        "UserPromptSubmit" => user_prompt_submit::project(conn, event),
+        "Stop" => stop::project(conn, event),
+        "PermissionRequest" => permission_request::project(conn, event),
+        "Notification" => notification::project(conn, event),
+        "SessionStart" => session_start::project(conn, event),
+        "SessionEnd" => session_end::project(conn, event),
         _ => Ok(Projection::Ignored),
     }
 }

@@ -9,6 +9,7 @@ pub mod consumption;
 mod filter;
 pub mod ingest_status;
 pub mod sessions;
+pub mod time;
 pub mod tools;
 
 pub use filter::{Filter, FilterColumns, FilterSql};

@@ -31,3 +31,18 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; gap: 24p
 .banner { border-radius: 10px; padding: 10px 16px; border: 1px solid var(--border); }
 .banner.warning { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-color: var(--accent); }
 .banner code { font-size: 12px; overflow-wrap: anywhere; }
+/* Time split series (categorical slots 1-4, fixed order). */
+:root { --series-model: #2a78d6; --series-tool: #eb6834; --series-waiting: #1baf7a; --series-subagent: #eda100; }
+@media (prefers-color-scheme: dark) {
+  :root { --series-model: #3987e5; --series-tool: #d95926; --series-waiting: #199e70; --series-subagent: #c98500; }
+}
+.row-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 24px; }
+.muted { color: var(--muted); font-weight: 400; }
+.chart-split { height: 24px; }
+.legend { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.legend li { display: flex; gap: 6px; align-items: center; }
+.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.swatch-model { background: var(--series-model); }
+.swatch-tool { background: var(--series-tool); }
+.swatch-waiting { background: var(--series-waiting); }
+.swatch-subagent { background: var(--series-subagent); }

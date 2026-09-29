@@ -1,5 +1,7 @@
 //! The overview (home) page.
 
+mod time_section;
+
 use std::sync::Arc;
 
 use askama::Template;
@@ -10,11 +12,13 @@ use serde::Serialize;
 use crate::db;
 use crate::stats::consumption::{self, Consumption};
 use crate::stats::ingest_status::{self, IngestStatus};
+use crate::stats::time;
 use crate::stats::tools::{self, ToolStat};
 use crate::web::AppState;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
+use time_section::TimeSection;
 
 #[derive(Template)]
 #[template(path = "pages/overview.html")]
@@ -24,6 +28,7 @@ struct OverviewPage {
     warning: Option<IngestWarning>,
     tools: Vec<ToolRow>,
     tools_chart_json: String,
+    time: TimeSection,
 }
 
 /// The KPI row.
@@ -89,15 +94,20 @@ pub(in crate::web) async fn handler(
 ) -> Result<Html<String>, WebError> {
     let filter = filters.to_filter();
     let log_path = state.paths.log_file().display().to_string();
-    let (tools, consumption, status) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        let conn = db::open(&state.paths)?;
-        Ok((
-            tools::top_tools(&conn, &filter)?,
-            consumption::consumption(&conn, &filter)?,
-            ingest_status::ingest_status(&conn)?,
-        ))
-    })
-    .await??;
+    let (tools, consumption, status, time) =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            let conn = db::open(&state.paths)?;
+            Ok((
+                tools::top_tools(&conn, &filter)?,
+                consumption::consumption(&conn, &filter)?,
+                ingest_status::ingest_status(&conn)?,
+                TimeSection::build(
+                    time::time_breakdown(&conn, &filter)?,
+                    time::waiting_by_tool(&conn, &filter)?,
+                )?,
+            ))
+        })
+        .await??;
     let tools: Vec<ToolRow> = tools.into_iter().map(ToolRow::from).collect();
 
     let page = OverviewPage {
@@ -106,6 +116,7 @@ pub(in crate::web) async fn handler(
         warning: IngestWarning::from_status(&status, log_path),
         filters,
         tools,
+        time,
     };
     Ok(Html(page.render()?))
 }
