@@ -6,10 +6,10 @@
   <div class="chart" data-chart="tools-bar" data-source="tools-data"></div>
   <script type="application/json" id="tools-data">{{ tools_chart_json|safe }}</script>
   <table class="ranking">
-    <thead><tr><th>Tool</th><th class="num">Calls</th><th class="num">Total time</th></tr></thead>
+    <thead><tr><th>Tool</th><th class="num">Calls</th><th class="num">Total time</th><th class="num">Median</th><th class="num">p95</th><th class="num">Failures</th></tr></thead>
     <tbody>
       {% for tool in tools %}
-      <tr><td>{{ tool.name }}</td><td class="num">{{ tool.calls }}</td><td class="num">{{ tool.total }}</td></tr>
+      <tr><td>{{ tool.name }}</td><td class="num">{{ tool.calls }}</td><td class="num">{{ tool.total }}</td><td class="num">{{ tool.median }}</td><td class="num">{{ tool.p95 }}</td><td class="num">{{ tool.failure_rate }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

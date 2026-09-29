@@ -189,6 +189,18 @@ impl TestEnv {
         stats::tools::top_tools(&self.db(), filter).expect("top_tools")
     }
 
+    pub fn tool_ranking(&self, filter: &Filter) -> Vec<stats::tools::RankedCalls> {
+        stats::tools::tool_ranking(&self.db(), filter).expect("tool_ranking")
+    }
+
+    pub fn bash_command_ranking(&self, filter: &Filter) -> Vec<stats::tools::RankedCalls> {
+        stats::tools::bash_command_ranking(&self.db(), filter).expect("bash_command_ranking")
+    }
+
+    pub fn mcp_server_ranking(&self, filter: &Filter) -> Vec<stats::tools::RankedCalls> {
+        stats::tools::mcp_server_ranking(&self.db(), filter).expect("mcp_server_ranking")
+    }
+
     // ---- the binary -------------------------------------------------------
 
     /// Runs the real `claudit` binary with this env's `CLAUDIT_HOME` and

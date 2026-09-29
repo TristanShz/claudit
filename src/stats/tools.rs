@@ -1,4 +1,14 @@
-//! Tool ranking.
+//! Tool rankings: by tool, by Bash leading command and by MCP server.
+//!
+//! Every ranking counts completed calls, successful or failed, and orders
+//! rows by call count, then total duration (both descending), then name.
+//!
+//! Percentiles use the **nearest-rank** method over the calls that report a
+//! duration: the p-th percentile of `n` sorted durations is the value at
+//! 1-based rank `ceil(p / 100 × n)`. It is always an observed duration, and
+//! the median of an even count is the lower of the two middle values.
+
+use std::collections::BTreeMap;
 
 use anyhow::Result;
 use rusqlite::{Connection, params_from_iter};
@@ -6,7 +16,41 @@ use serde::Serialize;
 
 use super::{Filter, FilterColumns};
 
-/// One tool's aggregate over the filtered calls.
+/// Aggregate of a group of tool calls.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct CallStats {
+    /// Completed calls, successful or failed.
+    pub calls: u64,
+    /// Calls that ended in `PostToolUseFailure`.
+    pub failures: u64,
+    /// Sum of the calls' execution time (`duration_ms`).
+    pub total_duration_ms: u64,
+    /// Nearest-rank median execution time (`None` if no call reported one).
+    pub median_duration_ms: Option<u64>,
+    /// Nearest-rank 95th percentile execution time.
+    pub p95_duration_ms: Option<u64>,
+}
+
+impl CallStats {
+    /// Share of calls that failed, in `[0, 1]` (0 when there are no calls).
+    pub fn failure_rate(&self) -> f64 {
+        if self.calls == 0 {
+            0.0
+        } else {
+            self.failures as f64 / self.calls as f64
+        }
+    }
+}
+
+/// One row of a ranking: a tool, a Bash command or an MCP server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RankedCalls {
+    pub name: String,
+    pub stats: CallStats,
+}
+
+/// One tool's call count and total duration (the compact form of a
+/// [`tool_ranking`] row).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ToolStat {
     pub tool_name: String,
@@ -23,24 +67,94 @@ const COLUMNS: FilterColumns = FilterColumns {
     model: None,
 };
 
+/// Tools ranked by call count, with durations and failure rate.
+pub fn tool_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<RankedCalls>> {
+    ranking(conn, filter, "tool_name")
+}
+
+/// Bash calls grouped by leading command (`git`, `cargo`, …). Calls whose
+/// command could not be derived are left out.
+pub fn bash_command_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<RankedCalls>> {
+    ranking(conn, filter, "bash_command")
+}
+
+/// MCP tool calls grouped by server (`mcp__<server>__<tool>`).
+pub fn mcp_server_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<RankedCalls>> {
+    ranking(conn, filter, "mcp_server")
+}
+
 /// Tools by call count, then total duration (descending), then name.
 pub fn top_tools(conn: &Connection, filter: &Filter) -> Result<Vec<ToolStat>> {
+    Ok(tool_ranking(conn, filter)?
+        .into_iter()
+        .map(|row| ToolStat {
+            tool_name: row.name,
+            calls: row.stats.calls,
+            total_duration_ms: row.stats.total_duration_ms,
+        })
+        .collect())
+}
+
+/// Groups the filtered completed calls by `key` (a trusted column name).
+fn ranking(conn: &Connection, filter: &Filter, key: &str) -> Result<Vec<RankedCalls>> {
     let where_ = filter.sql(&COLUMNS)?;
     let sql = format!(
-        "SELECT tool_name, COUNT(*), COALESCE(SUM(duration_ms), 0) AS total
+        "SELECT {key}, success, duration_ms
          FROM tool_calls
-         WHERE post_at_us IS NOT NULL AND {}
-         GROUP BY tool_name
-         ORDER BY COUNT(*) DESC, total DESC, tool_name",
+         WHERE post_at_us IS NOT NULL AND {key} IS NOT NULL AND {}",
         where_.clause
     );
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(where_.params), |row| {
-        Ok(ToolStat {
-            tool_name: row.get(0)?,
-            calls: row.get::<_, i64>(1)? as u64,
-            total_duration_ms: row.get::<_, i64>(2)? as u64,
+    let mut rows = stmt.query(params_from_iter(where_.params))?;
+
+    #[derive(Default)]
+    struct Group {
+        calls: u64,
+        failures: u64,
+        durations: Vec<u64>,
+    }
+    let mut groups: BTreeMap<String, Group> = BTreeMap::new();
+    while let Some(row) = rows.next()? {
+        let group = groups.entry(row.get(0)?).or_default();
+        group.calls += 1;
+        if row.get::<_, Option<i64>>(1)? == Some(0) {
+            group.failures += 1;
+        }
+        if let Some(ms) = row.get::<_, Option<i64>>(2)? {
+            group.durations.push(ms.max(0) as u64);
+        }
+    }
+
+    let mut ranking: Vec<RankedCalls> = groups
+        .into_iter()
+        .map(|(name, mut group)| {
+            group.durations.sort_unstable();
+            RankedCalls {
+                name,
+                stats: CallStats {
+                    calls: group.calls,
+                    failures: group.failures,
+                    total_duration_ms: group.durations.iter().sum(),
+                    median_duration_ms: nearest_rank(&group.durations, 50),
+                    p95_duration_ms: nearest_rank(&group.durations, 95),
+                },
+            }
         })
-    })?;
-    Ok(rows.collect::<Result<_, _>>()?)
+        .collect();
+    ranking.sort_by(|a, b| {
+        (b.stats.calls, b.stats.total_duration_ms)
+            .cmp(&(a.stats.calls, a.stats.total_duration_ms))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    Ok(ranking)
+}
+
+/// The `percentile`-th nearest-rank percentile of ascending `sorted`.
+fn nearest_rank(sorted: &[u64], percentile: u64) -> Option<u64> {
+    if sorted.is_empty() {
+        return None;
+    }
+    let n = sorted.len() as u64;
+    let rank = (percentile * n).div_ceil(100).max(1);
+    Some(sorted[(rank - 1) as usize])
 }

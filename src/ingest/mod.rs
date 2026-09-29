@@ -2,6 +2,7 @@
 //! the archive. Idempotent: input already ingested is skipped via byte
 //! offsets, and normalized rows are deduplicated on natural keys.
 
+mod bash_command;
 pub mod events;
 mod lock;
 pub mod offsets;

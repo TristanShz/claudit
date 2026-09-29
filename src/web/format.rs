@@ -10,6 +10,16 @@ pub(super) fn duration_ms(ms: u64) -> String {
     }
 }
 
+/// A ratio in `[0, 1]` as a percentage: `0 %`, `12.5 %`, `100 %`.
+pub(super) fn percent(ratio: f64) -> String {
+    let pct = ratio * 100.0;
+    if pct == pct.round() {
+        format!("{pct:.0} %")
+    } else {
+        format!("{pct:.1} %")
+    }
+}
+
 /// Serializes `value` for embedding in a `<script type="application/json">`
 /// element: `<` is escaped so data can never close the script tag.
 pub(super) fn script_json<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {

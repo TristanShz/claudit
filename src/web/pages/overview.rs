@@ -8,7 +8,7 @@ use axum::response::Html;
 use serde::Serialize;
 
 use crate::db;
-use crate::stats::tools::{self, ToolStat};
+use crate::stats::tools::{self, RankedCalls};
 use crate::web::AppState;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
@@ -29,15 +29,23 @@ struct ToolRow {
     calls: u64,
     total_ms: u64,
     total: String,
+    median: String,
+    p95: String,
+    failure_rate: String,
 }
 
-impl From<ToolStat> for ToolRow {
-    fn from(stat: ToolStat) -> Self {
+impl From<RankedCalls> for ToolRow {
+    fn from(row: RankedCalls) -> Self {
+        let stats = row.stats;
+        let optional = |ms: Option<u64>| ms.map_or_else(|| "–".to_owned(), format::duration_ms);
         Self {
-            total: format::duration_ms(stat.total_duration_ms),
-            name: stat.tool_name,
-            calls: stat.calls,
-            total_ms: stat.total_duration_ms,
+            total: format::duration_ms(stats.total_duration_ms),
+            median: optional(stats.median_duration_ms),
+            p95: optional(stats.p95_duration_ms),
+            failure_rate: format::percent(stats.failure_rate()),
+            name: row.name,
+            calls: stats.calls,
+            total_ms: stats.total_duration_ms,
         }
     }
 }
@@ -49,7 +57,7 @@ pub(in crate::web) async fn handler(
     let filter = filters.to_filter();
     let tools: Vec<ToolRow> = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
         let conn = db::open(&state.paths)?;
-        tools::top_tools(&conn, &filter)
+        tools::tool_ranking(&conn, &filter)
     })
     .await??
     .into_iter()
