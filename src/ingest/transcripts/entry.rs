@@ -13,11 +13,14 @@
 //!   `file-history-snapshot`, `queue-operation`, …) carry nothing claudit
 //!   uses and are ignored.
 //!
-//! Assistant response text and tool results are never extracted.
+//! Assistant response text and tool results are never extracted; prompt
+//! text is redacted (`crate::redact`) as soon as it is extracted.
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::redact;
 
 /// What a line turned out to be.
 #[derive(Debug)]
@@ -140,7 +143,11 @@ pub(super) fn parse(line: &str) -> Line {
             prompt_text: if envelope.is_meta == Some(true) {
                 None
             } else {
-                envelope.message.as_ref().and_then(prompt_text)
+                envelope
+                    .message
+                    .as_ref()
+                    .and_then(prompt_text)
+                    .map(|text| redact::redact_str(&text).into_owned())
             },
         },
         "assistant" => {
