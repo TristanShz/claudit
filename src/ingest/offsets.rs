@@ -66,6 +66,13 @@ pub fn set(conn: &Connection, file: &FileId, offset: u64) -> Result<()> {
     Ok(())
 }
 
+/// Forgets every offset recorded for `path` (whatever its inode), once the
+/// file is deleted.
+pub fn forget(conn: &Connection, path: &str) -> Result<()> {
+    conn.execute("DELETE FROM ingest_offsets WHERE path = ?1", params![path])?;
+    Ok(())
+}
+
 /// Reads every complete line after `offset`. If the file is now shorter than
 /// `offset` (truncated), it is read from the start.
 pub fn read_complete_lines(path: &Path, offset: u64) -> io::Result<NewLines> {

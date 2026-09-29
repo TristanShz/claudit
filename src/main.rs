@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use claudit::clock::SystemClock;
+use claudit::ingest::IngestOutcome;
 use claudit::paths::Paths;
 
 #[derive(Parser)]
@@ -55,7 +56,12 @@ fn run_hook() {
     std::panic::set_hook(Box::new(|_| {}));
     // Without resolvable paths there is no log to write to either.
     if let Ok(paths) = Paths::from_env() {
-        claudit::hook::run(&paths, &SystemClock, std::io::stdin().lock());
+        claudit::hook::run(
+            &paths,
+            &SystemClock,
+            &claudit::hook::DetachedIngest,
+            std::io::stdin().lock(),
+        );
     }
 }
 
@@ -63,19 +69,11 @@ fn run(cli: Cli) -> Result<()> {
     let paths = Paths::from_env()?;
     match cli.command {
         Command::Hook => unreachable!("handled before argument parsing"),
-        Command::Ingest => {
-            let report = claudit::ingest::run(&paths)?;
-            println!(
-                "ingested {} events ({} skipped lines, {} unprojected events)",
-                report.events, report.skipped_lines, report.unprojected_events
-            );
-            println!(
-                "read {} transcript lines ({} skipped)",
-                report.transcript_lines, report.skipped_transcript_lines
-            );
-            Ok(())
-        }
+        Command::Ingest => catch_up(&paths),
         Command::Serve { port } => {
+            // Catch up once at startup; the dashboard never polls afterwards.
+            eprintln!("claudit: catching up on pending ingestion…");
+            catch_up(&paths)?;
             let runtime = tokio::runtime::Runtime::new()?;
             runtime.block_on(claudit::web::serve(paths, port))
         }
@@ -124,6 +122,33 @@ fn uninstall(paths: &Paths) -> Result<()> {
     }
     println!("Your recorded data in {} was kept.", paths.home().display());
     Ok(())
+}
+
+/// Runs the locked catch-up ingest. Losing the lock is not an error: the
+/// running ingest will pick up everything pending.
+fn catch_up(paths: &Paths) -> Result<()> {
+    match claudit::ingest::catch_up(paths, &SystemClock) {
+        Ok(IngestOutcome::Ran(report)) => {
+            println!(
+                "ingested {} events ({} skipped lines, {} unprojected events)",
+                report.events, report.skipped_lines, report.unprojected_events
+            );
+            println!(
+                "read {} transcript lines ({} skipped)",
+                report.transcript_lines, report.skipped_transcript_lines
+            );
+            Ok(())
+        }
+        Ok(IngestOutcome::AlreadyRunning) => {
+            println!("another ingest is running; it will pick up pending input");
+            Ok(())
+        }
+        Err(err) => {
+            // A detached ingest has no terminal: the log is its only output.
+            claudit::logfile::error(paths, "ingest", format!("{err:#}"));
+            Err(err)
+        }
+    }
 }
 
 fn not_yet_implemented(command: &str) -> Result<()> {

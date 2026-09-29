@@ -1,0 +1,7 @@
+{
+  "session_id": "3f2b8c1e-7d4a-4e5b-9c6f-1a2b3c4d5e6f",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-acme-api/3f2b8c1e-7d4a-4e5b-9c6f-1a2b3c4d5e6f.jsonl",
+  "cwd": "/Users/alice/code/acme-api",
+  "hook_event_name": "SessionEnd",
+  "reason": "prompt_input_exit"
+}

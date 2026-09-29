@@ -7,6 +7,8 @@
 //! new event, add a module and one arm to [`project`].
 
 mod post_tool_use;
+mod post_tool_use_failure;
+mod tool_call;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -78,6 +80,7 @@ pub fn archive(conn: &Connection, event: &RawEvent) -> Result<()> {
 pub fn project(conn: &Connection, event: &RawEvent) -> Result<Projection> {
     match event.hook_event_name.as_str() {
         "PostToolUse" => post_tool_use::project(conn, event),
+        "PostToolUseFailure" => post_tool_use_failure::project(conn, event),
         _ => Ok(Projection::Ignored),
     }
 }
