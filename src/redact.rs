@@ -30,6 +30,7 @@ pub const META_PATTERNS_VERSION: &str = "redaction_patterns_version";
 /// a flag or an identifier, never free text.
 pub const TOOL_RESPONSE_ALLOWLIST: &[&str] = &[
     "agentId",
+    "agentType",
     "status",
     "resolvedModel",
     "totalDurationMs",

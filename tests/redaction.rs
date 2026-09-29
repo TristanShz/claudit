@@ -193,6 +193,17 @@ fn only_allow_listed_agent_totals_survive_from_a_tool_response() {
 }
 
 #[test]
+fn the_subagent_type_and_model_survive_from_an_agent_response() {
+    let payload = common::hook_fixture("post_tool_use_agent_review.json");
+    let clean = redact::sanitize_hook_payload(payload);
+    let response = &clean["tool_response"];
+    assert_eq!(response["agentType"], "general-purpose");
+    assert_eq!(response["resolvedModel"], "claude-haiku-4-5-20251001");
+    assert!(response.get("toolStats").is_none(), "{response}");
+    assert!(response.get("prompt").is_none(), "{response}");
+}
+
+#[test]
 fn assistant_response_text_is_dropped_from_stop_events() {
     for event in ["Stop", "SubagentStop"] {
         let clean = redact::sanitize_hook_payload(json!({
@@ -256,7 +267,9 @@ fn transcript_with_secret_prompt() -> String {
 }
 
 /// Hook payloads carrying every secret in a prompt, a Bash command, a tool
-/// input and a tool output; plus a transcript whose prompt carries them all.
+/// input and a tool output, a permission request, a notification, skill
+/// arguments (typed and model-invoked) and a subagent's prompt and answer;
+/// plus a transcript whose prompt carries them all.
 fn record_a_leaky_session(env: &TestEnv) {
     env.hook(&json!({
         "session_id": SESSION,
@@ -273,6 +286,39 @@ fn record_a_leaky_session(env: &TestEnv) {
         p["tool_input"]["file_path"] = Value::String(format!("/tmp/{}", SECRETS[2]));
         p["tool_input"]["api_key"] = Value::String(SECRETS[9].to_owned());
     });
+    env.hook_fixture_with("pre_tool_use_bash.json", |p| {
+        p["session_id"] = json!(SESSION);
+        p["tool_input"]["command"] = Value::String(secret_text());
+    });
+    env.hook_fixture_with("permission_request_bash.json", |p| {
+        p["session_id"] = json!(SESSION);
+        p["tool_input"]["command"] = Value::String(secret_text());
+    });
+    env.hook_fixture_with("notification_permission_prompt.json", |p| {
+        p["session_id"] = json!(SESSION);
+        p["message"] = Value::String(secret_text());
+    });
+    env.hook_fixture_with("user_prompt_expansion_skill.json", |p| {
+        p["session_id"] = json!(SESSION);
+        p["command_args"] = Value::String(secret_text());
+        p["prompt"] = Value::String(format!("/code-review {}", secret_text()));
+    });
+    env.hook_fixture_with("post_tool_use_skill.json", |p| {
+        p["tool_input"]["args"] = Value::String(secret_text());
+    });
+    env.hook_fixture_with("post_tool_use_agent_review.json", |p| {
+        p["session_id"] = json!(SESSION);
+        p["tool_input"]["prompt"] = Value::String(secret_text());
+        p["tool_response"]["prompt"] = Value::String(secret_text());
+        p["tool_response"]["content"][0]["text"] = Value::String(secret_text());
+    });
+    env.hook(&json!({
+        "session_id": SESSION,
+        "agent_id": "a1f3c5e7b9d2c4e6f",
+        "cwd": "/Users/alice/code/acme-api",
+        "hook_event_name": "SubagentStop",
+        "last_assistant_message": secret_text(),
+    }));
     env.hook(&json!({
         "session_id": SESSION,
         "cwd": "/Users/alice/code/acme-api",
@@ -329,7 +375,15 @@ fn no_secret_reaches_the_database() {
     assert!(!dump.contains("running 12 tests"), "tool output was stored");
     // Redacted data is still analysed.
     let tools = env.top_tools(&Filter::default());
-    assert_eq!(tools.len(), 2);
+    assert_eq!(tools.len(), 4);
+    let skills: Vec<_> = env
+        .skills(&Filter::default())
+        .into_iter()
+        .map(|s| s.skill)
+        .collect();
+    assert_eq!(skills.len(), 2, "{skills:?}");
+    let runs = env.subagent_runs(&Filter::default());
+    assert_eq!(runs[0].agent_type, "general-purpose");
     let sessions = env.sessions(&Filter::default());
     assert!(
         sessions[0]

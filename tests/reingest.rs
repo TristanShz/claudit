@@ -9,22 +9,49 @@
 mod common;
 
 use chrono::Duration;
+use claudit::pricing::PriceTable;
 use claudit::stats::{self, Filter};
 use common::TestEnv;
 use serde_json::json;
 
-/// Every stats report, over the whole archive and filtered to one project.
-/// A ticket adding a report adds it here, so reingest is checked against it.
+/// Every stats report, over the whole archive, filtered to one project and
+/// for one session. A ticket adding a report adds it here, so reingest is
+/// checked against it.
 #[derive(Debug, PartialEq)]
 struct Reports {
     top_tools: Vec<stats::tools::ToolStat>,
+    tool_ranking: Vec<stats::tools::RankedCalls>,
+    bash_command_ranking: Vec<stats::tools::RankedCalls>,
+    mcp_server_ranking: Vec<stats::tools::RankedCalls>,
     consumption: stats::consumption::Consumption,
     sessions: Vec<stats::sessions::SessionSummary>,
     ingest_status: stats::ingest_status::IngestStatus,
+    time_breakdown: stats::time::TimeBreakdown,
+    turn_times: Vec<stats::time::TurnTime>,
+    waiting_by_tool: Vec<stats::time::ToolWaiting>,
+    skills: Vec<stats::skills::SkillStat>,
+    subagents: Vec<stats::subagents::SubagentTypeStat>,
+    subagent_runs: Vec<stats::subagents::SubagentRun>,
+    total_cost: stats::cost::CostLine,
+    cost_by_session: Vec<stats::cost::CostLine>,
+    cost_by_model: Vec<stats::cost::CostLine>,
+    cost_by_skill: Vec<stats::cost::CostLine>,
+    cost_by_agent_type: Vec<stats::cost::CostLine>,
+    daily_series: Vec<stats::cost::DailyUsage>,
     acme_top_tools: Vec<stats::tools::ToolStat>,
     acme_consumption: stats::consumption::Consumption,
     acme_sessions: Vec<stats::sessions::SessionSummary>,
+    acme_time_breakdown: stats::time::TimeBreakdown,
+    acme_skills: Vec<stats::skills::SkillStat>,
+    acme_subagents: Vec<stats::subagents::SubagentTypeStat>,
+    acme_total_cost: stats::cost::CostLine,
+    session_a_turn_times: Vec<stats::time::TurnTime>,
+    session_a_skill_invocations: Vec<stats::skills::SkillInvocation>,
+    session_a_subagent_runs: Vec<stats::subagents::SubagentRun>,
 }
+
+/// Fixture session `8d0c5a3e-…`, whose hooks [`populate`] replays.
+const SESSION_A: &str = "8d0c5a3e-1b2f-4c6d-9e7a-0f1b2c3d4e5f";
 
 fn reports(env: &TestEnv) -> Reports {
     let all = Filter::default();
@@ -32,14 +59,48 @@ fn reports(env: &TestEnv) -> Reports {
         project: Some("/Users/alice/code/acme-api".to_owned()),
         ..Filter::default()
     };
+    let conn = env.db();
+    let prices = PriceTable::builtin();
+    let cost = |f: fn(
+        &rusqlite::Connection,
+        &Filter,
+        &PriceTable,
+    ) -> anyhow::Result<Vec<stats::cost::CostLine>>| {
+        f(&conn, &all, prices).expect("cost report")
+    };
     Reports {
         top_tools: env.top_tools(&all),
+        tool_ranking: env.tool_ranking(&all),
+        bash_command_ranking: env.bash_command_ranking(&all),
+        mcp_server_ranking: env.mcp_server_ranking(&all),
         consumption: env.consumption(&all),
         sessions: env.sessions(&all),
         ingest_status: env.ingest_status(),
+        time_breakdown: env.time_breakdown(&all),
+        turn_times: env.turn_times(&all),
+        waiting_by_tool: env.waiting_by_tool(&all),
+        skills: env.skills(&all),
+        subagents: env.subagents(&all),
+        subagent_runs: env.subagent_runs(&all),
+        total_cost: stats::cost::total_cost(&conn, &all, prices).expect("total_cost"),
+        cost_by_session: cost(stats::cost::cost_by_session),
+        cost_by_model: cost(stats::cost::cost_by_model),
+        cost_by_skill: cost(stats::cost::cost_by_skill),
+        cost_by_agent_type: cost(stats::cost::cost_by_agent_type),
+        daily_series: stats::cost::daily_series(&conn, &all, prices).expect("daily_series"),
         acme_top_tools: env.top_tools(&acme),
         acme_consumption: env.consumption(&acme),
         acme_sessions: env.sessions(&acme),
+        acme_time_breakdown: env.time_breakdown(&acme),
+        acme_skills: env.skills(&acme),
+        acme_subagents: env.subagents(&acme),
+        acme_total_cost: stats::cost::total_cost(&conn, &acme, prices).expect("total_cost"),
+        session_a_turn_times: stats::time::session_turn_times(&conn, SESSION_A)
+            .expect("session_turn_times"),
+        session_a_skill_invocations: stats::skills::session_skill_invocations(&conn, SESSION_A)
+            .expect("session_skill_invocations"),
+        session_a_subagent_runs: stats::subagents::session_subagent_runs(&conn, SESSION_A)
+            .expect("session_subagent_runs"),
     }
 }
 
@@ -47,6 +108,9 @@ fn reports(env: &TestEnv) -> Reports {
 /// delivery, ingested over two runs.
 fn populate(env: &TestEnv) {
     env.drop_projects_fixture();
+    // Session A's hooks: turn times, waits, permission prompts, a skill and
+    // a subagent run, matching its transcripts.
+    env.replay_session_a_hooks();
     env.hook_fixture("post_tool_use_bash.json");
     env.advance(Duration::seconds(5));
     env.hook_fixture("post_tool_use_read.json");
@@ -75,6 +139,15 @@ fn reingest_on_a_populated_archive_yields_identical_reports() {
     let before = reports(&env);
     assert_eq!(before.top_tools.len(), 3, "the archive is populated");
     assert!(before.consumption.sessions > 0, "transcripts were ingested");
+    assert!(!before.turn_times.is_empty(), "turns were timed");
+    assert!(!before.waiting_by_tool.is_empty(), "waits were measured");
+    assert!(!before.skills.is_empty(), "skills were invoked");
+    assert!(!before.subagent_runs.is_empty(), "subagents ran");
+    assert!(
+        !before.cost_by_agent_type.is_empty(),
+        "subagents were priced"
+    );
+    assert!(!before.session_a_skill_invocations.is_empty());
 
     claudit::ingest::reingest(&env.paths).expect("reingest succeeds");
 
@@ -146,6 +219,6 @@ fn the_reingest_command_rebuilds_the_archive() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("replayed 6 archived events"), "{stdout}");
+    assert!(stdout.contains("replayed 23 archived events"), "{stdout}");
     assert_eq!(reports(&env), before);
 }

@@ -280,6 +280,24 @@ fn pre_and_post_tool_use_pair_whichever_is_ingested_first() {
 }
 
 #[test]
+fn a_failed_call_pairs_with_its_pre_tool_use_like_a_successful_one() {
+    let env = TestEnv::new();
+    submit(&env, 0);
+    pre(&env, 1_000, "t-1", "Bash");
+    hook(
+        &env,
+        6_000,
+        json!({"hook_event_name": "PostToolUseFailure", "tool_name": "Bash", "tool_use_id": "t-1",
+               "tool_input": {}, "duration_ms": 2_000, "error": "Exit code 1"}),
+    );
+    stop(&env, 10_000);
+    env.ingest();
+
+    let turns = env.turn_times(&Filter::default());
+    assert_eq!(turn(&turns, "p-par").split, split(5_000, 2_000, 3_000, 0));
+}
+
+#[test]
 fn replaying_the_same_hooks_twice_changes_nothing() {
     let env = session_a();
     let before = env.time_breakdown(&Filter::default());

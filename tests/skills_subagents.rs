@@ -149,6 +149,34 @@ fn tool_calls_inside_a_subagent_are_attributed_to_it_not_to_the_main_thread() {
 }
 
 #[test]
+fn a_failed_tool_call_inside_a_subagent_is_attributed_to_it() {
+    let env = TestEnv::new();
+    drop_session_a_transcripts(&env);
+    env.replay_session_a_hooks_with(|name, p| match name {
+        "post_tool_use_subagent_read.json" => {
+            p["hook_event_name"] = json!("PostToolUseFailure");
+            p["error"] = json!("File does not exist.");
+            p.as_object_mut().unwrap().remove("tool_response");
+        }
+        "post_tool_use_agent_review.json" => {
+            p["tool_response"]
+                .as_object_mut()
+                .unwrap()
+                .remove("totalToolUseCount");
+        }
+        _ => {}
+    });
+    env.ingest();
+
+    let runs = env.subagent_runs(&Filter::default());
+    assert_eq!(runs.len(), 1, "{runs:#?}");
+    assert_eq!(runs[0].tool_calls, 1);
+    let turns = env.turn_times(&Filter::default());
+    let t2 = turns.iter().find(|t| t.prompt_id == TURN_A2).unwrap();
+    assert_eq!(t2.split.tool, Duration::zero());
+}
+
+#[test]
 fn subagents_are_ranked_by_type_with_duration_model_and_transcript_tokens() {
     let env = session_a();
 

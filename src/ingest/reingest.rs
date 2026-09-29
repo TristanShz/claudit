@@ -30,6 +30,10 @@ use crate::redact;
 /// Tables derived from `raw_events` and transcripts, cleared and rebuilt by
 /// reingest. List child tables before the tables they reference.
 pub const DERIVED_TABLES: &[&str] = &[
+    "permission_requests",
+    "notifications",
+    "skill_invocations",
+    "subagent_runs",
     "tool_calls",
     "sessions",
     "turns",
