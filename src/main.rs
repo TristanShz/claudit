@@ -69,6 +69,10 @@ fn run(cli: Cli) -> Result<()> {
                 "ingested {} events ({} skipped lines, {} unprojected events)",
                 report.events, report.skipped_lines, report.unprojected_events
             );
+            println!(
+                "read {} transcript lines ({} skipped)",
+                report.transcript_lines, report.skipped_transcript_lines
+            );
             Ok(())
         }
         Command::Serve { port } => {

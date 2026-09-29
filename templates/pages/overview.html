@@ -2,5 +2,7 @@
 {% block title %}claudit · Overview{% endblock %}
 {% block content %}
 {# One include per section; later sections are added here. #}
+{% include "partials/ingest_warning.html" %}
+{% include "sections/kpis.html" %}
 {% include "sections/tools.html" %}
 {% endblock %}

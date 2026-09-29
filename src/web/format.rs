@@ -10,6 +10,16 @@ pub(super) fn duration_ms(ms: u64) -> String {
     }
 }
 
+/// `950`, `12.3 k`, `4.56 M`, `1.20 B`.
+pub(super) fn count(n: u64) -> String {
+    match n {
+        0..1_000 => n.to_string(),
+        1_000..1_000_000 => format!("{:.1} k", n as f64 / 1e3),
+        1_000_000..1_000_000_000 => format!("{:.2} M", n as f64 / 1e6),
+        _ => format!("{:.2} B", n as f64 / 1e9),
+    }
+}
+
 /// Serializes `value` for embedding in a `<script type="application/json">`
 /// element: `<` is escaped so data can never close the script tag.
 pub(super) fn script_json<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
