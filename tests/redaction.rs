@@ -387,7 +387,7 @@ fn no_secret_reaches_the_database() {
     assert_no_secret(&dump);
     assert!(!dump.contains("running 12 tests"), "tool output was stored");
     // Redacted data is still analysed.
-    let tools = env.top_tools(&Filter::default());
+    let tools = env.tool_ranking(&Filter::default());
     assert_eq!(tools.len(), 4);
     let skills: Vec<_> = env
         .skills(&Filter::default())

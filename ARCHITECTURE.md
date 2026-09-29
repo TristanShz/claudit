@@ -75,6 +75,7 @@ flowchart LR
 | `migrations/` | SQL migrations, applied in file-name order. |
 | `redaction/patterns.toml` | Versioned secret patterns, compiled in. |
 | `pricing/prices.toml` | Versioned API price table, compiled in. |
+| `examples/demo_archive.rs` | Builds a demo archive from the test fixtures (screenshots, manual browser checks). |
 
 ## Files on disk
 
@@ -411,4 +412,6 @@ Tests exercise external behavior through two seams only (see
    containers the user wrote included (`tests/settings.rs`).
 
 There are no tests on the HTTP layer or templates: they are thin adapters
-over the stats API.
+over the stats API. The one exception is `tests/web_pages.rs`, a render smoke
+check (every page answers 200 and contains its section ids; no assertion on
+content), because issues #11 and #12 require each page to render.

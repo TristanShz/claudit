@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use super::RawEvent;
 use super::subagent_runs::{self, RunUpdate};
+use crate::clock;
 
 #[derive(Debug, Deserialize)]
 struct AgentCall {
@@ -53,7 +54,7 @@ pub(super) fn project(conn: &Connection, event: &RawEvent) -> Result<()> {
                 .or_else(|| call.tool_input.get("subagent_type").and_then(Value::as_str)),
             parent_tool_use_id: Some(&call.tool_use_id),
             model: str_field("resolvedModel"),
-            started_at_us: duration_ms.map(|ms| post_us - ms * 1000),
+            started_at_us: duration_ms.map(|ms| clock::execution_start_us(post_us, ms)),
             stopped_at_us: Some(post_us),
             total_duration_ms: duration_ms,
             total_tool_use_count: int_field("totalToolUseCount"),

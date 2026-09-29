@@ -54,6 +54,14 @@ pub fn to_micros(at: DateTime<Utc>) -> i64 {
     at.timestamp_micros()
 }
 
+/// When a call started executing, in µs: its completion time `post_us`
+/// minus the execution time Claude Code reports (`duration_ms`, which
+/// excludes permission prompts; a negative one counts as 0). The same rule
+/// in SQL is `stats::tools::EXECUTION_START`.
+pub fn execution_start_us(post_us: i64, duration_ms: i64) -> i64 {
+    post_us - duration_ms.max(0) * 1000
+}
+
 /// Inverse of [`to_micros`].
 pub fn from_micros(us: i64) -> DateTime<Utc> {
     DateTime::from_timestamp_micros(us).unwrap_or_default()

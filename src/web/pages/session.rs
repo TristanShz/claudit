@@ -96,25 +96,14 @@ struct TimelineTurn {
     segments: Vec<(usize, i64, i64)>,
 }
 
-const KINDS: [(SegmentKind, &str, &str); 4] = [
-    (SegmentKind::Model, "model", "Model"),
-    (SegmentKind::Tool, "tool", "Tools"),
-    (SegmentKind::Waiting, "waiting", "Waiting on you"),
-    (SegmentKind::Subagent, "subagent", "Subagents"),
-];
-
-fn kind_index(kind: SegmentKind) -> usize {
-    KINDS
-        .iter()
-        .position(|(k, _, _)| *k == kind)
-        .expect("every kind is listed")
-}
-
 fn timeline(turns: &[TurnTime]) -> Timeline {
     Timeline {
-        kinds: KINDS
-            .iter()
-            .map(|&(_, kind, label)| TimelineKind { kind, label })
+        kinds: SegmentKind::ALL
+            .into_iter()
+            .map(|kind| TimelineKind {
+                kind: kind.name(),
+                label: kind.label(),
+            })
             .collect(),
         turns: turns
             .iter()
@@ -132,7 +121,10 @@ fn timeline(turns: &[TurnTime]) -> Timeline {
                     .iter()
                     .map(|s| {
                         (
-                            kind_index(s.kind),
+                            SegmentKind::ALL
+                                .iter()
+                                .position(|k| *k == s.kind)
+                                .expect("every kind is listed"),
                             (s.start - turn.start).num_milliseconds(),
                             (s.end - turn.start).num_milliseconds(),
                         )

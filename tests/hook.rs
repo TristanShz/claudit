@@ -17,7 +17,7 @@ fn hook_binary_spools_a_payload_silently() {
     assert_eq!(out.status.code(), Some(0));
     assert!(out.stdout.is_empty(), "stdout: {:?}", out.stdout);
     env.ingest();
-    assert_eq!(env.top_tools(&Filter::default())[0].tool_name, "Bash");
+    assert_eq!(env.tool_ranking(&Filter::default())[0].name, "Bash");
     assert_eq!(env.log(), "");
 }
 
@@ -49,7 +49,7 @@ fn a_payload_without_session_id_is_logged_not_spooled() {
     env.ingest();
 
     assert!(env.log().contains("session_id"), "log: {}", env.log());
-    assert_eq!(env.top_tools(&Filter::default()), vec![]);
+    assert_eq!(env.tool_ranking(&Filter::default()), vec![]);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn a_session_id_that_is_not_a_safe_file_name_is_rejected() {
         "log: {}",
         env.log()
     );
-    assert_eq!(env.top_tools(&Filter::default()), vec![]);
+    assert_eq!(env.tool_ranking(&Filter::default()), vec![]);
 }
 
 #[test]

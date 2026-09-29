@@ -19,7 +19,6 @@ use serde_json::json;
 /// checked against it.
 #[derive(Debug, PartialEq)]
 struct Reports {
-    top_tools: Vec<stats::tools::ToolStat>,
     tool_ranking: Vec<stats::tools::RankedCalls>,
     bash_command_ranking: Vec<stats::tools::RankedCalls>,
     mcp_server_ranking: Vec<stats::tools::RankedCalls>,
@@ -39,7 +38,7 @@ struct Reports {
     cost_by_skill: Vec<stats::cost::CostLine>,
     cost_by_agent_type: Vec<stats::cost::CostLine>,
     daily_series: Vec<stats::cost::DailyUsage>,
-    acme_top_tools: Vec<stats::tools::ToolStat>,
+    acme_tool_ranking: Vec<stats::tools::RankedCalls>,
     acme_consumption: stats::consumption::Consumption,
     acme_sessions: Vec<stats::sessions::SessionSummary>,
     acme_time_breakdown: stats::time::TimeBreakdown,
@@ -71,7 +70,6 @@ fn reports(env: &TestEnv) -> Reports {
         f(&conn, &all, prices).expect("cost report")
     };
     Reports {
-        top_tools: env.top_tools(&all),
         tool_ranking: env.tool_ranking(&all),
         bash_command_ranking: env.bash_command_ranking(&all),
         mcp_server_ranking: env.mcp_server_ranking(&all),
@@ -91,7 +89,7 @@ fn reports(env: &TestEnv) -> Reports {
         cost_by_skill: cost(stats::cost::cost_by_skill),
         cost_by_agent_type: cost(stats::cost::cost_by_agent_type),
         daily_series: stats::cost::daily_series(&conn, &all, prices).expect("daily_series"),
-        acme_top_tools: env.top_tools(&acme),
+        acme_tool_ranking: env.tool_ranking(&acme),
         acme_consumption: env.consumption(&acme),
         acme_sessions: env.sessions(&acme),
         acme_time_breakdown: env.time_breakdown(&acme),
@@ -142,7 +140,7 @@ fn reingest_on_a_populated_archive_yields_identical_reports() {
     let env = TestEnv::new();
     populate(&env);
     let before = reports(&env);
-    assert_eq!(before.top_tools.len(), 3, "the archive is populated");
+    assert_eq!(before.tool_ranking.len(), 3, "the archive is populated");
     assert!(before.consumption.sessions > 0, "transcripts were ingested");
     assert!(!before.turn_times.is_empty(), "turns were timed");
     assert!(!before.waiting_by_tool.is_empty(), "waits were measured");
@@ -202,12 +200,12 @@ fn reingest_also_ingests_what_is_still_pending() {
 fn hook_data_survives_a_reingest_after_its_transcripts_are_gone() {
     let env = TestEnv::new();
     populate(&env);
-    let tools = env.top_tools(&Filter::default());
+    let tools = env.tool_ranking(&Filter::default());
     std::fs::remove_dir_all(env.paths.claude_projects_dir()).unwrap();
 
     claudit::ingest::reingest(&env.paths).expect("reingest succeeds");
 
-    assert_eq!(env.top_tools(&Filter::default()), tools);
+    assert_eq!(env.tool_ranking(&Filter::default()), tools);
     assert_eq!(env.consumption(&Filter::default()).tokens.total(), 0);
 }
 

@@ -45,11 +45,11 @@ fn an_ingest_that_cannot_take_the_lock_exits_without_ingesting() {
         .unwrap()
         .expect("lock is free");
     assert_eq!(env.try_ingest(), IngestOutcome::AlreadyRunning);
-    assert_eq!(env.top_tools(&Filter::default()), vec![]);
+    assert_eq!(env.tool_ranking(&Filter::default()), vec![]);
 
     drop(holder);
     env.ingest();
-    assert_eq!(env.top_tools(&Filter::default())[0].calls, 1);
+    assert_eq!(env.tool_ranking(&Filter::default())[0].stats.calls, 1);
 }
 
 #[test]
@@ -104,9 +104,9 @@ fn two_concurrent_ingest_processes_give_the_same_stats_as_one_run() {
     for out in &outputs {
         assert_eq!(out.status.code(), Some(0), "{out:?}");
     }
-    let expected = single.top_tools(&Filter::default());
-    assert_eq!(expected[0].calls, 300);
-    assert_eq!(concurrent.top_tools(&Filter::default()), expected);
+    let expected = single.tool_ranking(&Filter::default());
+    assert_eq!(expected[0].stats.calls, 300);
+    assert_eq!(concurrent.tool_ranking(&Filter::default()), expected);
 }
 
 #[test]
@@ -128,8 +128,8 @@ fn two_concurrent_ingest_threads_give_the_same_stats_as_one_run() {
     });
 
     assert_eq!(
-        concurrent.top_tools(&Filter::default()),
-        single.top_tools(&Filter::default())
+        concurrent.tool_ranking(&Filter::default()),
+        single.tool_ranking(&Filter::default())
     );
 }
 
@@ -152,9 +152,9 @@ fn a_crashed_session_is_ingested_by_the_next_ingest_of_another_session() {
     env.ingest();
 
     let names: Vec<_> = env
-        .top_tools(&Filter::default())
+        .tool_ranking(&Filter::default())
         .into_iter()
-        .map(|t| t.tool_name)
+        .map(|t| t.name)
         .collect();
     assert_eq!(names, ["Bash", "Read"]);
 }
@@ -172,7 +172,7 @@ fn the_spool_of_an_ended_session_is_purged_and_a_live_one_kept() {
     env.ingest();
 
     assert_eq!(env.spooled_sessions(), [LIVE]);
-    assert_eq!(env.top_tools(&Filter::default()).len(), 2);
+    assert_eq!(env.tool_ranking(&Filter::default()).len(), 2);
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn an_idle_spool_is_purged_after_the_threshold() {
     env.advance(Duration::hours(2));
     env.ingest();
     assert_eq!(env.spooled_sessions(), Vec::<String>::new());
-    assert_eq!(env.top_tools(&Filter::default())[0].calls, 1);
+    assert_eq!(env.tool_ranking(&Filter::default())[0].stats.calls, 1);
 }
 
 #[test]
@@ -224,9 +224,9 @@ fn a_session_resumed_after_its_spool_was_purged_is_still_ingested_once() {
     env.ingest();
 
     let calls: Vec<_> = env
-        .top_tools(&Filter::default())
+        .tool_ranking(&Filter::default())
         .into_iter()
-        .map(|t| (t.tool_name, t.calls))
+        .map(|t| (t.name, t.stats.calls))
         .collect();
     assert_eq!(calls, [("Bash".to_owned(), 1), ("Read".to_owned(), 1)]);
 }
@@ -246,12 +246,12 @@ fn hook_binary_returns_without_waiting_for_the_ingest_it_spawns() {
 
     assert_eq!(out.status.code(), Some(0));
     assert!(elapsed < StdDuration::from_secs(3), "hook took {elapsed:?}");
-    assert_eq!(env.top_tools(&Filter::default()), vec![]);
+    assert_eq!(env.tool_ranking(&Filter::default()), vec![]);
 
     // Once the lock is released, the detached ingest completes on its own.
     blocker.execute_batch("COMMIT").unwrap();
     let deadline = Instant::now() + StdDuration::from_secs(20);
-    while env.top_tools(&Filter::default()).is_empty() {
+    while env.tool_ranking(&Filter::default()).is_empty() {
         assert!(
             Instant::now() < deadline,
             "detached ingest never ran; log: {}",
@@ -259,5 +259,5 @@ fn hook_binary_returns_without_waiting_for_the_ingest_it_spawns() {
         );
         std::thread::sleep(StdDuration::from_millis(50));
     }
-    assert_eq!(env.top_tools(&Filter::default())[0].tool_name, "Bash");
+    assert_eq!(env.tool_ranking(&Filter::default())[0].name, "Bash");
 }

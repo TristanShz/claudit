@@ -68,12 +68,7 @@ const INVOCATION_COLUMNS: FilterColumns = FilterColumns {
     time_us: "si.at_us",
     cwd: Some("s.cwd"),
     branch: Some("s.git_branch"),
-    model: Some(
-        "(SELECT m.model FROM api_messages m
-          WHERE m.session_id = si.session_id AND m.prompt_id = si.prompt_id
-            AND m.agent_id IS si.agent_id
-          ORDER BY m.at_us LIMIT 1)",
-    ),
+    model: Some(first_model_of_turn!("si")),
 };
 
 const MESSAGE_COLUMNS: FilterColumns = FilterColumns {

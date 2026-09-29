@@ -1,9 +1,8 @@
 //! "Where the time goes" and "Waiting on you, by tool" (overview).
 
-use chrono::Duration;
 use serde::Serialize;
 
-use crate::stats::time::{SegmentKind, TimeBreakdown, TimeSplit, ToolWaiting};
+use crate::stats::time::{SegmentKind, TimeBreakdown, ToolWaiting};
 use crate::web::format;
 
 /// Both cards of the time row.
@@ -59,38 +58,18 @@ struct ChartDay {
     subagent: i64,
 }
 
-const KINDS: [(SegmentKind, &str, &str); 4] = [
-    (SegmentKind::Model, "model", "Model"),
-    (SegmentKind::Tool, "tool", "Tools"),
-    (SegmentKind::Waiting, "waiting", "Waiting on you"),
-    (SegmentKind::Subagent, "subagent", "Subagents"),
-];
-
-fn component(split: &TimeSplit, kind: SegmentKind) -> Duration {
-    match kind {
-        SegmentKind::Model => split.model,
-        SegmentKind::Tool => split.tool,
-        SegmentKind::Waiting => split.waiting,
-        SegmentKind::Subagent => split.subagent,
-    }
-}
-
-fn human(d: Duration) -> String {
-    format::duration_ms(d.num_milliseconds().max(0) as u64)
-}
-
 impl TimeSection {
     pub fn build(breakdown: TimeBreakdown, waiting: Vec<ToolWaiting>) -> anyhow::Result<Self> {
         let wall = breakdown.total.wall();
         let wall_ms = wall.num_milliseconds();
-        let parts = KINDS
-            .iter()
-            .map(|&(kind, css, label)| {
-                let d = component(&breakdown.total, kind);
+        let parts = SegmentKind::ALL
+            .into_iter()
+            .map(|kind| {
+                let d = breakdown.total.component(kind);
                 TimePart {
-                    kind: css,
-                    label,
-                    value: human(d),
+                    kind: kind.name(),
+                    label: kind.label(),
+                    value: format::duration(d),
                     share: if wall_ms > 0 {
                         format!(
                             "{:.0}%",
@@ -103,12 +82,12 @@ impl TimeSection {
             })
             .collect();
         let chart = TimeChart {
-            split: KINDS
-                .iter()
-                .map(|&(kind, css, label)| ChartPart {
-                    kind: css,
-                    label,
-                    ms: component(&breakdown.total, kind).num_milliseconds(),
+            split: SegmentKind::ALL
+                .into_iter()
+                .map(|kind| ChartPart {
+                    kind: kind.name(),
+                    label: kind.label(),
+                    ms: breakdown.total.component(kind).num_milliseconds(),
                 })
                 .collect(),
             days: breakdown
@@ -125,13 +104,13 @@ impl TimeSection {
         };
         Ok(Self {
             has_data: breakdown.turns > 0,
-            total: human(wall),
+            total: format::duration(wall),
             parts,
             chart_json: format::script_json(&chart)?,
             waiting: waiting
                 .into_iter()
                 .map(|w| WaitingRow {
-                    waiting: human(w.waiting),
+                    waiting: format::duration(w.waiting),
                     name: w.tool_name,
                     calls_waited: w.calls_waited,
                     permission_requests: w.permission_requests,

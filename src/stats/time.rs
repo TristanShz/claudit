@@ -47,6 +47,37 @@ pub enum SegmentKind {
     Subagent,
 }
 
+impl SegmentKind {
+    /// Every kind, in display order (legends, charts, split bars).
+    pub const ALL: [SegmentKind; 4] = [
+        SegmentKind::Model,
+        SegmentKind::Tool,
+        SegmentKind::Waiting,
+        SegmentKind::Subagent,
+    ];
+
+    /// The kind's identifier: `model`, `tool`, `waiting` or `subagent` (as
+    /// serialized; also the dashboard's CSS hook).
+    pub fn name(self) -> &'static str {
+        match self {
+            SegmentKind::Model => "model",
+            SegmentKind::Tool => "tool",
+            SegmentKind::Waiting => "waiting",
+            SegmentKind::Subagent => "subagent",
+        }
+    }
+
+    /// The kind's display label.
+    pub fn label(self) -> &'static str {
+        match self {
+            SegmentKind::Model => "Model",
+            SegmentKind::Tool => "Tools",
+            SegmentKind::Waiting => "Waiting on you",
+            SegmentKind::Subagent => "Subagents",
+        }
+    }
+}
+
 /// A stretch of a turn, positioned in time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Segment {
@@ -81,11 +112,17 @@ impl TimeSplit {
         self.model + self.tool + self.waiting + self.subagent
     }
 
-    fn add(&mut self, other: &TimeSplit) {
-        *self += *other;
+    /// The component of `kind`.
+    pub fn component(&self, kind: SegmentKind) -> Duration {
+        match kind {
+            SegmentKind::Model => self.model,
+            SegmentKind::Tool => self.tool,
+            SegmentKind::Waiting => self.waiting,
+            SegmentKind::Subagent => self.subagent,
+        }
     }
 
-    fn component(&mut self, kind: SegmentKind) -> &mut Duration {
+    fn component_mut(&mut self, kind: SegmentKind) -> &mut Duration {
         match kind {
             SegmentKind::Model => &mut self.model,
             SegmentKind::Tool => &mut self.tool,
@@ -168,12 +205,7 @@ const PERMISSION_COLUMNS: FilterColumns = FilterColumns {
     time_us: "pr.at_us",
     cwd: Some("COALESCE(pr.cwd, s.cwd)"),
     branch: Some("s.git_branch"),
-    model: Some(
-        "(SELECT m.model FROM api_messages m
-          WHERE m.session_id = pr.session_id AND m.prompt_id = pr.prompt_id
-            AND m.agent_id IS pr.agent_id
-          ORDER BY m.at_us LIMIT 1)",
-    ),
+    model: Some(first_model_of_turn!("pr")),
 };
 
 /// Every filtered main-thread turn with an end, oldest first.
@@ -197,10 +229,8 @@ pub fn time_breakdown(conn: &Connection, filter: &Filter) -> Result<TimeBreakdow
     let mut total = TimeSplit::default();
     let mut days: BTreeMap<NaiveDate, TimeSplit> = BTreeMap::new();
     for turn in &turns {
-        total.add(&turn.split);
-        days.entry(turn.start.date_naive())
-            .or_default()
-            .add(&turn.split);
+        total += turn.split;
+        *days.entry(turn.start.date_naive()).or_default() += turn.split;
     }
     Ok(TimeBreakdown {
         turns: turns.len() as u64,
@@ -227,13 +257,14 @@ pub fn waiting_by_tool(conn: &Connection, filter: &Filter) -> Result<Vec<ToolWai
     let where_ = filter.sql(&super::tools::TOOL_CALL_COLUMNS)?;
     let sql = format!(
         "SELECT tc.tool_name,
-                SUM(MAX(0, tc.post_at_us - tc.duration_ms * 1000 - tc.pre_at_us)),
-                SUM(tc.post_at_us - tc.duration_ms * 1000 > tc.pre_at_us)
+                SUM(MAX(0, {start} - tc.pre_at_us)),
+                SUM({start} > tc.pre_at_us)
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
          WHERE tc.pre_at_us IS NOT NULL AND tc.post_at_us IS NOT NULL
            AND tc.duration_ms IS NOT NULL AND {}
          GROUP BY tc.tool_name",
-        where_.clause
+        where_.clause,
+        start = super::tools::EXECUTION_START,
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(where_.params), |row| {
@@ -346,7 +377,7 @@ struct CallTimes {
 impl CallTimes {
     fn new(tool_name: &str, pre: Option<i64>, post: i64, duration_ms: Option<i64>) -> Self {
         let exec_start = match duration_ms {
-            Some(ms) => Some(post - ms.max(0) * 1000),
+            Some(ms) => Some(clock::execution_start_us(post, ms)),
             None => pre,
         };
         let exec = exec_start.map(|start| (start, post));
@@ -401,7 +432,7 @@ fn decompose(start: i64, end: i64, calls: &[CallTimes]) -> (TimeSplit, Vec<Segme
             .map(|(kind, _)| *kind)
             .max()
             .unwrap_or(SegmentKind::Model);
-        *split.component(kind) += Duration::microseconds(b - a);
+        *split.component_mut(kind) += Duration::microseconds(b - a);
         match segments.last_mut() {
             Some(last) if last.kind == kind => last.end = clock::from_micros(b),
             _ => segments.push(Segment {

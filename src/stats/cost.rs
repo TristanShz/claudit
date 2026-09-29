@@ -10,11 +10,12 @@
 
 use anyhow::Result;
 use chrono::NaiveDate;
+use rusqlite::types::Value;
 use rusqlite::{Connection, params_from_iter};
 use serde::Serialize;
 
 use super::consumption::TokenTotals;
-use super::{Filter, FilterColumns};
+use super::{Filter, FilterColumns, FilterSql};
 use crate::pricing::{Cost, PriceTable};
 
 /// Tokens and their cost for one group (a session, model, skill, …).
@@ -47,8 +48,22 @@ const MESSAGE_COLUMNS: FilterColumns = FilterColumns {
 
 /// Tokens and cost of every API response in the filter.
 pub fn total_cost(conn: &Connection, filter: &Filter, prices: &PriceTable) -> Result<CostLine> {
-    let lines = grouped(conn, filter, prices, "''", "1")?;
+    let lines = grouped(conn, &filter.sql(&MESSAGE_COLUMNS)?, prices, "''", "1")?;
     Ok(lines.into_iter().next().unwrap_or_default())
+}
+
+/// Tokens and cost of one session, subagents included, unfiltered (the
+/// session page shows a session whole). Keyed by the session id.
+pub fn session_cost(conn: &Connection, session_id: &str, prices: &PriceTable) -> Result<CostLine> {
+    let scope = FilterSql {
+        clause: "m.session_id = ?".to_owned(),
+        params: vec![Value::Text(session_id.to_owned())],
+    };
+    let lines = grouped(conn, &scope, prices, "m.session_id", "1")?;
+    Ok(lines.into_iter().next().unwrap_or_else(|| CostLine {
+        key: session_id.to_owned(),
+        ..CostLine::default()
+    }))
 }
 
 /// Cost per session (subagents included), most expensive first.
@@ -57,7 +72,13 @@ pub fn cost_by_session(
     filter: &Filter,
     prices: &PriceTable,
 ) -> Result<Vec<CostLine>> {
-    grouped(conn, filter, prices, "m.session_id", "1")
+    grouped(
+        conn,
+        &filter.sql(&MESSAGE_COLUMNS)?,
+        prices,
+        "m.session_id",
+        "1",
+    )
 }
 
 /// Cost per model id as reported by the API, most expensive first.
@@ -66,7 +87,13 @@ pub fn cost_by_model(
     filter: &Filter,
     prices: &PriceTable,
 ) -> Result<Vec<CostLine>> {
-    grouped(conn, filter, prices, "COALESCE(m.model, '')", "1")
+    grouped(
+        conn,
+        &filter.sql(&MESSAGE_COLUMNS)?,
+        prices,
+        "COALESCE(m.model, '')",
+        "1",
+    )
 }
 
 /// Cost per skill, from the responses Claude Code attributed to a skill.
@@ -75,7 +102,13 @@ pub fn cost_by_skill(
     filter: &Filter,
     prices: &PriceTable,
 ) -> Result<Vec<CostLine>> {
-    grouped(conn, filter, prices, "m.skill", "m.skill IS NOT NULL")
+    grouped(
+        conn,
+        &filter.sql(&MESSAGE_COLUMNS)?,
+        prices,
+        "m.skill",
+        "m.skill IS NOT NULL",
+    )
 }
 
 /// Cost per subagent type (the responses of subagent threads).
@@ -86,7 +119,7 @@ pub fn cost_by_agent_type(
 ) -> Result<Vec<CostLine>> {
     grouped(
         conn,
-        filter,
+        &filter.sql(&MESSAGE_COLUMNS)?,
         prices,
         "m.agent_type",
         "m.agent_type IS NOT NULL",
@@ -101,7 +134,7 @@ pub fn daily_series(
 ) -> Result<Vec<DailyUsage>> {
     let rows = per_model_sums(
         conn,
-        filter,
+        &filter.sql(&MESSAGE_COLUMNS)?,
         "date(m.at_us / 1000000, 'unixepoch')",
         "m.at_us IS NOT NULL",
     )?;
@@ -117,17 +150,18 @@ pub fn daily_series(
         .collect()
 }
 
-/// Groups by `key_sql`, prices each group's per-model sums and folds them.
-/// Ordered by known cost (descending), then key.
+/// Groups the messages in `scope` by `key_sql`, prices each group's
+/// per-model sums and folds them. Ordered by known cost (descending), then
+/// key.
 fn grouped(
     conn: &Connection,
-    filter: &Filter,
+    scope: &FilterSql,
     prices: &PriceTable,
     key_sql: &str,
     condition: &str,
 ) -> Result<Vec<CostLine>> {
     let mut lines: Vec<CostLine> = Vec::new();
-    for (key, model, tokens, cache_write_1h) in per_model_sums(conn, filter, key_sql, condition)? {
+    for (key, model, tokens, cache_write_1h) in per_model_sums(conn, scope, key_sql, condition)? {
         if lines.last().is_none_or(|line| line.key != key) {
             lines.push(CostLine {
                 key,
@@ -144,14 +178,14 @@ fn grouped(
 }
 
 /// `(key, model, tokens, 1-hour cache writes among tokens.cache_write)` rows
-/// ordered by key then model.
+/// of the messages in `scope` (a `WHERE` fragment over
+/// `api_messages m LEFT JOIN sessions s`), ordered by key then model.
 fn per_model_sums(
     conn: &Connection,
-    filter: &Filter,
+    scope: &FilterSql,
     key_sql: &str,
     condition: &str,
 ) -> Result<Vec<(String, String, TokenTotals, u64)>> {
-    let where_ = filter.sql(&MESSAGE_COLUMNS)?;
     let sql = format!(
         "SELECT {key_sql} AS k, COALESCE(m.model, '') AS mdl,
                 COALESCE(SUM(m.cache_write_1h_tokens), 0), {sums}
@@ -160,10 +194,10 @@ fn per_model_sums(
          GROUP BY k, mdl
          ORDER BY k, mdl",
         sums = TokenTotals::SUMS,
-        clause = where_.clause,
+        clause = scope.clause,
     );
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(where_.params), |row| {
+    let rows = stmt.query_map(params_from_iter(scope.params.iter()), |row| {
         Ok((
             row.get(0)?,
             row.get(1)?,

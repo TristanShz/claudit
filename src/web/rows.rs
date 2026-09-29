@@ -10,7 +10,7 @@ use crate::pricing::Cost;
 use crate::stats::sessions::SessionSummary;
 use crate::stats::skills::SkillStat;
 use crate::stats::subagents::{SubagentRun, SubagentTypeStat};
-use crate::stats::time::TimeSplit;
+use crate::stats::time::{SegmentKind, TimeSplit};
 use crate::stats::tools::RankedCalls;
 
 /// A tool, Bash command or MCP server.
@@ -156,21 +156,17 @@ pub(super) fn split_bar(split: &TimeSplit) -> Vec<BarPart> {
     if wall <= 0 {
         return Vec::new();
     }
-    [
-        ("model", "Model", split.model),
-        ("tool", "Tools", split.tool),
-        ("waiting", "Waiting on you", split.waiting),
-        ("subagent", "Subagents", split.subagent),
-    ]
-    .into_iter()
-    .filter(|(_, _, d)| *d > Duration::zero())
-    .map(|(kind, label, d)| BarPart {
-        kind,
-        label,
-        pct: format!("{:.2}", d.num_milliseconds() as f64 * 100.0 / wall as f64),
-        value: format::duration(d),
-    })
-    .collect()
+    SegmentKind::ALL
+        .into_iter()
+        .map(|kind| (kind, split.component(kind)))
+        .filter(|(_, d)| *d > Duration::zero())
+        .map(|(kind, d)| BarPart {
+            kind: kind.name(),
+            label: kind.label(),
+            pct: format!("{:.2}", d.num_milliseconds() as f64 * 100.0 / wall as f64),
+            value: format::duration(d),
+        })
+        .collect()
 }
 
 /// A row of the session table.

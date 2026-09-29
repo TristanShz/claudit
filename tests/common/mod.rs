@@ -19,7 +19,6 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
@@ -208,6 +207,30 @@ impl TestEnv {
         );
     }
 
+    /// The fixture archive the dashboard checks and the demo archive use:
+    /// every fixture transcript, session `8d0c5a3e-…`'s hooks, and a Read
+    /// call running in parallel with that session's first Bash call.
+    pub fn populate_fixture_archive(&self) {
+        const SESSION_A: &str = "8d0c5a3e-1b2f-4c6d-9e7a-0f1b2c3d4e5f";
+        self.drop_projects_fixture();
+        self.replay_session_a_hooks();
+        let parallel = |p: &mut Value| {
+            p["session_id"] = serde_json::json!(SESSION_A);
+            p["prompt_id"] = serde_json::json!("a1b2c3d4-0001-4000-8000-000000000001");
+            p["tool_name"] = serde_json::json!("Read");
+            p["tool_use_id"] = serde_json::json!("toolu_01AcmeParallelRead");
+            p["tool_input"] =
+                serde_json::json!({ "file_path": "/Users/alice/code/acme-api/Cargo.toml" });
+        };
+        self.at(t0() + Duration::milliseconds(18_000))
+            .hook_fixture_with("pre_tool_use_bash.json", parallel);
+        self.at(t0() + Duration::milliseconds(22_000))
+            .hook_fixture_with("post_tool_use_read.json", |p| {
+                parallel(p);
+                p["duration_ms"] = serde_json::json!(4000);
+            });
+    }
+
     /// Replays the hook payloads captured from a real Claude Code session
     /// (`tests/fixtures/hooks/captured-<version>/`), in file-name order, each
     /// at the receive time its `received_at.json` records.
@@ -306,10 +329,6 @@ impl TestEnv {
         claudit::db::open(&self.paths).expect("open database")
     }
 
-    pub fn top_tools(&self, filter: &Filter) -> Vec<stats::tools::ToolStat> {
-        stats::tools::top_tools(&self.db(), filter).expect("top_tools")
-    }
-
     pub fn tool_ranking(&self, filter: &Filter) -> Vec<stats::tools::RankedCalls> {
         stats::tools::tool_ranking(&self.db(), filter).expect("tool_ranking")
     }
@@ -322,11 +341,20 @@ impl TestEnv {
         stats::tools::mcp_server_ranking(&self.db(), filter).expect("mcp_server_ranking")
     }
 
-    // ---- the binary -------------------------------------------------------
+    /// Contents of the claudit error log ("" when absent).
+    pub fn log(&self) -> String {
+        fs::read_to_string(self.paths.log_file()).unwrap_or_default()
+    }
+}
 
+// Only integration tests have the binary's path (`examples/demo_archive.rs`
+// includes this harness too).
+#[cfg(test)]
+impl TestEnv {
     /// Runs the real `claudit` binary with this env's `CLAUDIT_HOME` and
     /// `CLAUDE_CONFIG_DIR`, feeding `stdin`.
-    pub fn run_bin(&self, args: &[&str], stdin: &[u8]) -> Output {
+    pub fn run_bin(&self, args: &[&str], stdin: &[u8]) -> std::process::Output {
+        use std::process::{Command, Stdio};
         let mut child = Command::new(env!("CARGO_BIN_EXE_claudit"))
             .args(args)
             .env("CLAUDIT_HOME", self.paths.home())
@@ -338,11 +366,6 @@ impl TestEnv {
             .expect("spawn claudit");
         child.stdin.take().unwrap().write_all(stdin).unwrap();
         child.wait_with_output().expect("wait for claudit")
-    }
-
-    /// Contents of the claudit error log ("" when absent).
-    pub fn log(&self) -> String {
-        fs::read_to_string(self.paths.log_file()).unwrap_or_default()
     }
 }
 

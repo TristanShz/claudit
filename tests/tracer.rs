@@ -4,24 +4,27 @@ mod common;
 
 use chrono::Duration;
 use claudit::stats::Filter;
-use claudit::stats::tools::ToolStat;
 use common::TestEnv;
 use serde_json::json;
 
+/// `tool_ranking` reduced to (tool, calls, total duration in ms).
+fn tools(env: &TestEnv, filter: &Filter) -> Vec<(String, u64, u64)> {
+    env.tool_ranking(filter)
+        .into_iter()
+        .map(|t| (t.name, t.stats.calls, t.stats.total_duration_ms))
+        .collect()
+}
+
 #[test]
-fn replayed_post_tool_use_appears_in_top_tools_with_its_duration() {
+fn replayed_post_tool_use_appears_in_the_tool_ranking_with_its_duration() {
     let env = TestEnv::new();
 
     env.hook_fixture("post_tool_use_bash.json");
     env.ingest();
 
     assert_eq!(
-        env.top_tools(&Filter::default()),
-        vec![ToolStat {
-            tool_name: "Bash".into(),
-            calls: 1,
-            total_duration_ms: 4187,
-        }]
+        tools(&env, &Filter::default()),
+        vec![("Bash".into(), 1, 4187)]
     );
 }
 
@@ -31,11 +34,11 @@ fn ingesting_twice_does_not_double_count() {
     env.hook_fixture("post_tool_use_bash.json");
 
     env.ingest();
-    let first = env.top_tools(&Filter::default());
+    let first = env.tool_ranking(&Filter::default());
     env.ingest();
 
-    assert_eq!(env.top_tools(&Filter::default()), first);
-    assert_eq!(first[0].calls, 1);
+    assert_eq!(env.tool_ranking(&Filter::default()), first);
+    assert_eq!(first[0].stats.calls, 1);
 }
 
 #[test]
@@ -49,12 +52,8 @@ fn a_tool_call_delivered_twice_is_counted_once() {
     env.ingest();
 
     assert_eq!(
-        env.top_tools(&Filter::default()),
-        vec![ToolStat {
-            tool_name: "Bash".into(),
-            calls: 1,
-            total_duration_ms: 4187,
-        }]
+        tools(&env, &Filter::default()),
+        vec![("Bash".into(), 1, 4187)]
     );
 }
 
@@ -74,24 +73,13 @@ fn tools_are_ranked_by_call_count_with_summed_durations() {
     env.ingest();
 
     assert_eq!(
-        env.top_tools(&Filter::default()),
-        vec![
-            ToolStat {
-                tool_name: "Read".into(),
-                calls: 2,
-                total_duration_ms: 40,
-            },
-            ToolStat {
-                tool_name: "Bash".into(),
-                calls: 1,
-                total_duration_ms: 4187,
-            },
-        ]
+        tools(&env, &Filter::default()),
+        vec![("Read".into(), 2, 40), ("Bash".into(), 1, 4187)]
     );
 }
 
 #[test]
-fn top_tools_honours_the_date_range_and_project_filters() {
+fn the_tool_ranking_honours_the_date_range_and_project_filters() {
     let env = TestEnv::new();
     env.at(common::t0());
     read_call(&env, "toolu_monday", 10);
@@ -107,12 +95,7 @@ fn top_tools_honours_the_date_range_and_project_filters() {
         to: Some(common::t0() + Duration::days(2)),
         ..Filter::default()
     };
-    let names_and_totals = |filter: &Filter| {
-        env.top_tools(filter)
-            .into_iter()
-            .map(|t| (t.tool_name, t.calls, t.total_duration_ms))
-            .collect::<Vec<_>>()
-    };
+    let names_and_totals = |filter: &Filter| tools(&env, filter);
     assert_eq!(
         names_and_totals(&tuesday),
         vec![("Bash".into(), 1, 4187), ("Read".into(), 1, 20)]

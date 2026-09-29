@@ -56,28 +56,16 @@ pub struct RankedCalls {
     pub stats: CallStats,
 }
 
-/// One tool's call count and total duration (the compact form of a
-/// [`tool_ranking`] row).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ToolStat {
-    pub tool_name: String,
-    /// Completed calls.
-    pub calls: u64,
-    /// Sum of the calls' execution time (`duration_ms`).
-    pub total_duration_ms: u64,
-}
+/// When a call of `tool_calls tc` started executing, in SQL: the rule of
+/// [`crate::clock::execution_start_us`] (NULL without a duration).
+pub(super) const EXECUTION_START: &str = "(tc.post_at_us - MAX(tc.duration_ms, 0) * 1000)";
 
 /// Filter columns of `tool_calls tc LEFT JOIN sessions s`.
 pub(super) const TOOL_CALL_COLUMNS: FilterColumns = FilterColumns {
     time_us: "tc.post_at_us",
     cwd: Some("COALESCE(tc.cwd, s.cwd)"),
     branch: Some("s.git_branch"),
-    model: Some(
-        "(SELECT m.model FROM api_messages m
-          WHERE m.session_id = tc.session_id AND m.prompt_id = tc.prompt_id
-            AND m.agent_id IS tc.agent_id
-          ORDER BY m.at_us LIMIT 1)",
-    ),
+    model: Some(first_model_of_turn!("tc")),
 };
 
 /// Tools ranked by call count, with durations and failure rate.
@@ -96,27 +84,15 @@ pub fn mcp_server_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<Rank
     ranking(conn, filter, "mcp_server")
 }
 
-/// Tools by call count, then total duration (descending), then name.
-pub fn top_tools(conn: &Connection, filter: &Filter) -> Result<Vec<ToolStat>> {
-    Ok(tool_ranking(conn, filter)?
-        .into_iter()
-        .map(|row| ToolStat {
-            tool_name: row.name,
-            calls: row.stats.calls,
-            total_duration_ms: row.stats.total_duration_ms,
-        })
-        .collect())
-}
-
-/// Groups the filtered completed calls by `key` (a trusted column name).
+/// Ranks the completed calls in `filter` by `key` (a trusted column name).
 fn ranking(conn: &Connection, filter: &Filter, key: &str) -> Result<Vec<RankedCalls>> {
     let where_ = filter.sql(&TOOL_CALL_COLUMNS)?;
-    rank(conn, key, &where_.clause, where_.params)
+    rank_where(conn, key, &where_.clause, where_.params)
 }
 
 /// Every tool of one session, its subagents' calls included.
 pub fn session_tool_ranking(conn: &Connection, session_id: &str) -> Result<Vec<RankedCalls>> {
-    rank(
+    rank_where(
         conn,
         "tool_name",
         "tc.session_id = ?",
@@ -126,7 +102,7 @@ pub fn session_tool_ranking(conn: &Connection, session_id: &str) -> Result<Vec<R
 
 /// Groups the completed calls matching `clause` by `key` (a trusted column
 /// of `tool_calls tc`).
-fn rank(
+fn rank_where(
     conn: &Connection,
     key: &str,
     clause: &str,

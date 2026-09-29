@@ -33,7 +33,6 @@ const HAIKU: &str = "claude-haiku-4-5-20251001";
 struct Digest {
     /// `tool_ranking`: (tool, calls).
     tools: Vec<(String, u64)>,
-    top_tools: Vec<String>,
     bash_commands: Vec<String>,
     mcp_servers: Vec<String>,
     /// `consumption`: sessions, turns, total tokens.
@@ -74,11 +73,6 @@ fn digest(env: &TestEnv, filter: &Filter) -> Digest {
             .unwrap()
             .into_iter()
             .map(|r| (r.name, r.stats.calls))
-            .collect(),
-        top_tools: stats::tools::top_tools(&conn, filter)
-            .unwrap()
-            .into_iter()
-            .map(|t| t.tool_name)
             .collect(),
         bash_commands: names(stats::tools::bash_command_ranking(&conn, filter).unwrap()),
         mcp_servers: names(stats::tools::mcp_server_ranking(&conn, filter).unwrap()),
@@ -180,7 +174,6 @@ fn populate(env: &TestEnv) {
 fn login_session_only() -> Digest {
     Digest {
         tools: vec![("Bash".to_owned(), 1)],
-        top_tools: strings(&["Bash"]),
         bash_commands: strings(&["git"]),
         // Tokens: 5 + 150 + 3200 + 3000.
         consumption: (1, 1, 6355),
@@ -236,7 +229,6 @@ fn a_project_filter_keeps_only_that_directory_in_every_report() {
         digest(&env, &filter),
         Digest {
             tools: vec![("Read".to_owned(), 1)],
-            top_tools: strings(&["Read"]),
             // Tokens: 2 + 500 + 5000 + 1000.
             consumption: (1, 1, 6502),
             session_list: strings(&[WEB_APP]),
@@ -268,7 +260,6 @@ fn a_model_filter_keeps_what_that_model_did_in_every_report() {
         digest(&env, &filter),
         Digest {
             tools: vec![("Read".to_owned(), 1)],
-            top_tools: strings(&["Read"]),
             // Tokens: 6 + 300 + 4300 + 4000.
             consumption: (1, 1, 8606),
             session_list: strings(&[SESSION_A]),

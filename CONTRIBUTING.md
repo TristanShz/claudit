@@ -55,7 +55,11 @@ express: "no secret string survives anywhere in the database"
 (`tests/permissions.rs`).
 
 There are no tests on the HTTP layer or the templates: handlers only call
-the stats API and render.
+the stats API and render. One explicit exception: `tests/web_pages.rs` is a
+render smoke check (issues #11 and #12 require every page to render). It
+calls `claudit::web::router` in process and asserts only the HTTP status
+and the presence of section ids, never page content; don't extend it
+beyond that.
 
 Conventions:
 
@@ -176,6 +180,20 @@ A derived `meta` key belongs in `DERIVED_META_KEYS`.
 - `pricing/prices.toml`: update `version` (the date prices were read) and
   `source`; prices have at most 6 decimals. Add aliases rather than fuzzy
   matching.
+
+## Screenshots
+
+The README screenshots (`docs/screenshots/`) are taken from a demo archive
+built from the test fixtures:
+
+```sh
+cargo run --example demo_archive -- /tmp/claudit-demo
+CLAUDIT_HOME=/tmp/claudit-demo cargo run -- serve
+```
+
+`examples/demo_archive.rs` reuses the seam-1 harness (`tests/common`), so the
+demo shows the same data the dashboard smoke checks render. Use it for manual
+browser checks too.
 
 ## Pull requests
 
