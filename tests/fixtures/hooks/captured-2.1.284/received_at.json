@@ -1,0 +1,20 @@
+{
+  "01_session_start.json": "2026-09-29T19:34:04.179757Z",
+  "02_user_prompt_submit.json": "2026-09-29T19:34:06.560084Z",
+  "03_pre_tool_use_bash.json": "2026-09-29T19:34:09.038023Z",
+  "04_pre_tool_use_read.json": "2026-09-29T19:34:10.341373Z",
+  "05_post_tool_use_bash.json": "2026-09-29T19:34:10.365038Z",
+  "06_post_tool_use_read.json": "2026-09-29T19:34:10.715789Z",
+  "07_pre_tool_use_bash.json": "2026-09-29T19:34:10.831288Z",
+  "08_post_tool_use_failure_bash.json": "2026-09-29T19:34:11.193783Z",
+  "09_pre_tool_use_agent.json": "2026-09-29T19:34:13.910066Z",
+  "10_subagent_start.json": "2026-09-29T19:34:14.220560Z",
+  "11_post_tool_use_agent.json": "2026-09-29T19:34:14.238896Z",
+  "12_pre_tool_use_bash_in_subagent.json": "2026-09-29T19:34:15.627837Z",
+  "13_post_tool_use_bash_in_subagent.json": "2026-09-29T19:34:15.950734Z",
+  "14_stop.json": "2026-09-29T19:34:17.243397Z",
+  "15_subagent_stop.json": "2026-09-29T19:34:17.432465Z",
+  "16_user_prompt_submit.json": "2026-09-29T19:34:17.774141Z",
+  "17_stop.json": "2026-09-29T19:34:18.991249Z",
+  "18_session_end.json": "2026-09-29T19:34:19.356176Z"
+}

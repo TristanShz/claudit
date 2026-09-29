@@ -208,6 +208,29 @@ impl TestEnv {
         );
     }
 
+    /// Replays the hook payloads captured from a real Claude Code session
+    /// (`tests/fixtures/hooks/captured-<version>/`), in file-name order, each
+    /// at the receive time its `received_at.json` records.
+    pub fn replay_captured_hooks(&self, version: &str) {
+        let dir = fixtures_dir().join(format!("hooks/captured-{version}"));
+        let times: std::collections::BTreeMap<String, DateTime<Utc>> =
+            serde_json::from_str(&fs::read_to_string(dir.join("received_at.json")).unwrap())
+                .unwrap();
+        for (name, at) in times {
+            self.hook_fixture_at(at, &format!("captured-{version}/{name}"));
+        }
+    }
+
+    /// Copies the transcripts of that captured session
+    /// (`tests/fixtures/transcripts/captured-<version>/projects`) into the
+    /// Claude projects dir.
+    pub fn drop_captured_transcripts(&self, version: &str) {
+        copy_tree(
+            &fixtures_dir().join(format!("transcripts/captured-{version}/projects")),
+            &self.paths.claude_projects_dir(),
+        );
+    }
+
     // ---- ingest & stats ---------------------------------------------------
 
     /// Runs the locked catch-up ingest (what `claudit ingest` and

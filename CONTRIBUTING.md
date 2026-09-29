@@ -77,14 +77,25 @@ Fixtures live in `tests/fixtures/`:
   subagent transcript and its `.meta.json`;
 - `transcripts/cost/…`: transcripts for cost tests, kept out of `projects/`
   so the totals documented for `projects/` stay valid;
-- `settings/*.json`: Claude Code settings files for seam 2.
+- `settings/*.json`: Claude Code settings files for seam 2;
+- `hooks/captured-<version>/` and `transcripts/captured-<version>/`: one real
+  session captured from Claude Code `<version>`, anonymized
+  (`tests/captured.rs` replays it).
 
 Rules:
 
-- **Anonymized.** Fixtures are shaped after real payloads and transcripts,
-  but all content is invented: user `alice`, projects under
-  `/Users/alice/code/`, synthetic ids, no real prompts, paths, tokens or
-  outputs. Never commit a captured file as is.
+- **Synthetic or captured, and labelled as such.** Most fixtures are
+  synthetic: written by hand after real shapes, with all content invented
+  (user `alice`, projects under `/Users/alice/code/`, made-up ids). Captured
+  fixtures live under `captured-<version>/` and must be anonymized before
+  commit: paths and user name moved to `alice`, prompts and outputs
+  replaced, anything describing the local setup (attachments' bodies, hook
+  commands) removed; ids, timings and usage may stay. Never commit a
+  captured file as is. To capture a new set, register
+  `<path to claudit> hook` for all twelve events in a scratch settings file
+  with `CLAUDIT_HOME` pointing to a scratch dir, and run
+  `claude -p --settings <file> "<prompt>"` in a scratch project; never edit
+  your real `~/.claude/settings.json` for it.
 - **Tagged with the Claude Code version** they were shaped after. Each
   fixture directory has a `README.md` naming the version (currently 2.1.284)
   and documenting the scenario and expected results (timings, token totals)

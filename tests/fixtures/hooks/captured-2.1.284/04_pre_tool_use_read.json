@@ -1,0 +1,13 @@
+{
+  "session_id": "8b7fcd89-94d5-4cb5-8ee2-da8805b15c80",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80.jsonl",
+  "cwd": "/Users/alice/code/scratch",
+  "prompt_id": "662d5648-37e0-4239-affd-4ea405085399",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "/Users/alice/code/scratch/notes.txt"
+  },
+  "tool_use_id": "toolu_01P1622rj8ECVNoQ4Lx2tsPU"
+}

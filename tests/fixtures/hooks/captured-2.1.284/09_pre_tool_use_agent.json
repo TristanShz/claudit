@@ -1,0 +1,15 @@
+{
+  "session_id": "8b7fcd89-94d5-4cb5-8ee2-da8805b15c80",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80.jsonl",
+  "cwd": "/Users/alice/code/scratch",
+  "prompt_id": "662d5648-37e0-4239-affd-4ea405085399",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Run echo command and report output",
+    "prompt": "Run the bash command: echo hi\n\nReport the output in exactly one word.",
+    "subagent_type": "general-purpose"
+  },
+  "tool_use_id": "toolu_01NyHWzYp98PsmVpfgfxdmay"
+}

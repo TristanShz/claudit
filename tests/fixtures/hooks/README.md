@@ -5,10 +5,19 @@ One JSON file per hook payload, named `<event>_<variant>.json` in snake case
 point `claudit hook` uses (`TestEnv::hook_fixture`), optionally overriding
 fields (`TestEnv::hook_fixture_with`) to vary ids, tools or durations.
 
-Shapes follow Claude Code 2.1.284 (https://code.claude.com/docs/en/hooks),
-anonymized: user `alice`, project `/Users/alice/code/acme-api`, made-up ids.
+There are two kinds of fixtures here:
+
+- **Synthetic** (the `*.json` files at the top level): written by hand after
+  the documented shapes (https://code.claude.com/docs/en/hooks) of Claude
+  Code 2.1.284, with invented content: user `alice`, project
+  `/Users/alice/code/acme-api`, made-up ids and timings. They were not
+  captured from a real session; they exist to script precise scenarios.
+- **Captured** (`captured-<version>/`): payloads a real Claude Code
+  `<version>` sent to `claudit hook`, anonymized (see below).
+
 When upstream shapes change, add new fixtures next to these (suffix the
-version, e.g. `post_tool_use_bash.v2_3.json`) instead of replacing them.
+version, e.g. `post_tool_use_bash.v2_3.json`, or a new `captured-<version>/`)
+instead of replacing them.
 
 ## Session `8d0c5a3e-…` (hooks for the transcript fixture)
 
@@ -42,3 +51,32 @@ model 16.8 s, waiting 0.1 s, subagent 63.4 s.
 
 `post_tool_use_skill.json` (session `3f2b8c1e-…`) is a model-invoked Skill
 tool call.
+
+## `captured-2.1.284/`: a real session
+
+Captured from **Claude Code 2.1.284** running headless
+(`claude -p --settings <file> --model haiku`) with `claudit hook` registered
+as an async command hook on all twelve events. The prompt asked Claude to run
+`ls -la`, read `notes.txt`, run `cat does-not-exist.txt` (which fails), and
+launch a general-purpose subagent that runs `echo hi`. Files are numbered in
+arrival order; `received_at.json` holds each payload's real receive time, and
+`TestEnv::replay_captured_hooks` replays them at those times. The matching
+transcripts are in `tests/fixtures/transcripts/captured-2.1.284/`.
+
+Anonymization: paths moved to `/Users/alice/code/scratch` (and
+`/Users/alice/.claude/projects/-Users-alice-code-scratch`), the user name
+replaced by `alice`, the prompt and the `ls` output replaced by invented
+text. Ids, event order, timings, `duration_ms` and every other field are as
+captured.
+
+Worth knowing from this capture (2.1.284):
+
+- the Agent tool ran the subagent **in the background**: its `PostToolUse`
+  arrived 4 ms after launch, with `tool_response.status = "async_launched"`
+  and no totals (`totalTokens`, `totalDurationMs` absent); the subagent's
+  tokens come from its transcript;
+- the main thread's `Stop` (`14_stop.json`) arrived before `SubagentStop`,
+  and the subagent's completion then opened a second turn whose
+  `UserPromptSubmit` prompt is a `<task-notification>` (`16_…`, `17_stop`);
+- `Stop` and `SubagentStop` carry `background_tasks` and `session_crons`;
+  `SessionEnd` carried `reason: "other"` for a headless run.

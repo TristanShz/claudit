@@ -1,8 +1,12 @@
 # Transcript fixtures
 
-Anonymized Claude Code transcripts, shaped after real transcripts written by
-**Claude Code 2.1.284** (user `alice`, projects under `/Users/alice/code/`).
-All prompt, tool and response content is invented; ids are synthetic.
+`projects/` and `cost/` are **synthetic** transcripts: written by hand after
+the shape of real transcripts from **Claude Code 2.1.284** (user `alice`,
+projects under `/Users/alice/code/`), not captured. All prompt, tool and
+response content is invented; ids are synthetic.
+
+`captured-2.1.284/` is a **captured** transcript, anonymized (see the end of
+this file).
 
 `projects/` mirrors `~/.claude/projects/`:
 
@@ -35,3 +39,20 @@ Every cache write in `projects/` is a 1-hour write (`ephemeral_1h_input_tokens`)
 The files are generated for readability, not captured verbatim. When the
 upstream format changes, add fixtures for the new version next to these
 rather than editing them.
+
+## `captured-2.1.284/`: a real session
+
+The transcripts Claude Code 2.1.284 wrote for the session whose hook payloads
+are in `tests/fixtures/hooks/captured-2.1.284/` (see the README there for the
+scenario): `projects/-Users-alice-code-scratch/8b7fcd89-….jsonl` (two turns,
+Haiku) and its background subagent `…/subagents/agent-ab3adec90281dd9a2.jsonl`
+with its `.meta.json` (`requestShape: "background"`).
+`TestEnv::drop_captured_transcripts` copies them into place.
+
+Anonymization: paths and the user name as for the hooks; the prompt, tool
+outputs and thinking signatures replaced by invented text; `attachment`
+entries reduced to their envelope (uuids, timestamps, cwd, …) and their
+`attachment.type`, because their bodies carry the local setup (system prompt,
+tool and MCP server lists, account context); `system` hook summaries point at
+an invented command. Everything else (ids, timestamps, usage, models, line
+types and order) is as captured.

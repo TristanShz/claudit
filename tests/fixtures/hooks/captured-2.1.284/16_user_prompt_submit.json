@@ -1,0 +1,9 @@
+{
+  "session_id": "8b7fcd89-94d5-4cb5-8ee2-da8805b15c80",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80.jsonl",
+  "cwd": "/Users/alice/code/scratch",
+  "prompt_id": "70fcac9b-d512-47d4-8028-fe5f39a6cb48",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "<task-notification>\n<task-id>ab3adec90281dd9a2</task-id>\n<tool-use-id>toolu_01NyHWzYp98PsmVpfgfxdmay</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80/tasks/ab3adec90281dd9a2.output</output-file>\n<status>completed</status>\n<summary>Agent \"Run echo command and report output\" finished</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>hi</result>\n<usage><subagent_tokens>16655</subagent_tokens><tool_uses>1</tool_uses><duration_ms>3524</duration_ms></usage>\n</task-notification>"
+}
