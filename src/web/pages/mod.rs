@@ -1,6 +1,7 @@
 //! One module per dashboard page.
 
 pub(super) mod overview;
+pub(super) mod session;
 pub(super) mod sessions;
 pub(super) mod skills;
 pub(super) mod subagents;

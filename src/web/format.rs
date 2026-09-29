@@ -60,11 +60,37 @@ pub(super) fn cost(cost: &crate::pricing::Cost) -> String {
     }
 }
 
-/// `text` cut to at most `max` characters, with an ellipsis when cut.
+/// `text` on one line (whitespace runs collapsed), cut to at most `max`
+/// characters with an ellipsis when cut.
 pub(super) fn truncate(text: &str, max: usize) -> String {
-    let text = text.trim();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = text.as_str();
     match text.char_indices().nth(max) {
         Some((at, _)) => format!("{}…", text[..at].trim_end()),
+        None => text.to_owned(),
+    }
+}
+
+/// A prompt for display: a typed slash command, which transcripts store as
+/// `<command-message>…</command-message><command-name>/x</command-name>
+/// <command-args>…</command-args>`, becomes `/x …`.
+pub(super) fn prompt(text: &str) -> String {
+    let tag = |name: &str| {
+        let open = format!("<{name}>");
+        let close = format!("</{name}>");
+        let start = text.find(&open)? + open.len();
+        let end = start + text[start..].find(&close)?;
+        Some(text[start..end].trim())
+    };
+    match tag("command-name") {
+        Some(name) => {
+            let args = tag("command-args").unwrap_or("");
+            if args.is_empty() {
+                name.to_owned()
+            } else {
+                format!("{name} {args}")
+            }
+        }
         None => text.to_owned(),
     }
 }

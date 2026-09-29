@@ -199,7 +199,7 @@ pub(super) fn session_rows(
         .into_iter()
         .map(|s| {
             let cwd = s.cwd.unwrap_or_default();
-            let prompt = s.first_prompt.unwrap_or_default();
+            let prompt = format::prompt(&s.first_prompt.unwrap_or_default());
             SessionRow {
                 started: format::local_time(s.started_at),
                 project: project_name(&cwd),

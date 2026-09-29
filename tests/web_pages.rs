@@ -12,7 +12,9 @@ mod common;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use common::TestEnv;
+use chrono::Duration;
+use common::{TestEnv, t0};
+use serde_json::json;
 use tower::ServiceExt;
 
 /// GETs `uri` and returns the status and body.
@@ -52,11 +54,33 @@ async fn the_overview_shows_the_empty_state_on_an_empty_archive() {
     assert!(!body.contains("id=\"kpis-section\""));
 }
 
+const SESSION_A: &str = "8d0c5a3e-1b2f-4c6d-9e7a-0f1b2c3d4e5f";
+
+/// The fixture sessions, session A's hooks, and a Read call running in
+/// parallel with session A's first Bash call.
+fn populate(env: &TestEnv) {
+    env.drop_projects_fixture();
+    env.replay_session_a_hooks();
+    let parallel = |p: &mut serde_json::Value| {
+        p["session_id"] = json!(SESSION_A);
+        p["prompt_id"] = json!("a1b2c3d4-0001-4000-8000-000000000001");
+        p["tool_name"] = json!("Read");
+        p["tool_use_id"] = json!("toolu_01AcmeParallelRead");
+        p["tool_input"] = json!({ "file_path": "/Users/alice/code/acme-api/Cargo.toml" });
+    };
+    env.at(t0() + Duration::milliseconds(18_000))
+        .hook_fixture_with("pre_tool_use_bash.json", parallel);
+    env.at(t0() + Duration::milliseconds(22_000))
+        .hook_fixture_with("post_tool_use_read.json", |p| {
+            parallel(p);
+            p["duration_ms"] = json!(4000);
+        });
+}
+
 #[tokio::test]
 async fn every_page_renders_its_sections_on_the_fixture_archive() {
     let env = TestEnv::new();
-    env.drop_projects_fixture();
-    env.replay_session_a_hooks();
+    populate(&env);
     env.ingest();
 
     for (uri, ids) in [
@@ -85,10 +109,23 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
         ("/skills", &["skills-section"][..]),
         ("/subagents", &["subagents-section", "runs-section"][..]),
         ("/sessions", &["sessions-section"][..]),
+        (
+            "/sessions/8d0c5a3e-1b2f-4c6d-9e7a-0f1b2c3d4e5f?branch=main",
+            &[
+                "session-header",
+                "session-kpis",
+                "timeline-section",
+                "timeline-data",
+                "session-tools-section",
+                "session-skills-subagents-section",
+            ][..],
+        ),
     ] {
         let (status, body) = get(&env, uri).await;
         assert_sections(uri, status, &body, ids);
     }
+    let (status, _) = get(&env, "/sessions/00000000-0000-0000-0000-000000000000").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 /// Not a test: builds a demo archive from the fixtures (for screenshots and
@@ -102,8 +139,7 @@ fn demo_archive() {
         return;
     };
     let env = TestEnv::new();
-    env.drop_projects_fixture();
-    env.replay_session_a_hooks();
+    populate(&env);
     for name in [
         "post_tool_use_bash.json",
         "post_tool_use_read.json",

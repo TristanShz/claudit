@@ -55,6 +55,7 @@ fn app(state: AppState) -> Router {
         .route("/skills", get(pages::skills::handler))
         .route("/subagents", get(pages::subagents::handler))
         .route("/sessions", get(pages::sessions::handler))
+        .route("/sessions/{id}", get(pages::session::handler))
         .route("/refresh", post(refresh::handler))
         .route("/assets/{file}", get(assets::handler))
         .with_state(Arc::new(state))

@@ -12,6 +12,7 @@ pub mod cost;
 mod filter;
 pub mod filter_options;
 pub mod ingest_status;
+pub mod session_detail;
 pub mod sessions;
 pub mod skills;
 pub mod subagents;

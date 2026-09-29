@@ -49,6 +49,7 @@ struct Reports {
     session_a_turn_times: Vec<stats::time::TurnTime>,
     session_a_skill_invocations: Vec<stats::skills::SkillInvocation>,
     session_a_subagent_runs: Vec<stats::subagents::SubagentRun>,
+    session_a_detail: Option<stats::session_detail::SessionDetail>,
 }
 
 /// Fixture session `8d0c5a3e-…`, whose hooks [`populate`] replays.
@@ -103,6 +104,8 @@ fn reports(env: &TestEnv) -> Reports {
             .expect("session_skill_invocations"),
         session_a_subagent_runs: stats::subagents::session_subagent_runs(&conn, SESSION_A)
             .expect("session_subagent_runs"),
+        session_a_detail: stats::session_detail::session_detail(&conn, SESSION_A, prices)
+            .expect("session_detail"),
     }
 }
 
@@ -150,6 +153,7 @@ fn reingest_on_a_populated_archive_yields_identical_reports() {
         "subagents were priced"
     );
     assert!(!before.session_a_skill_invocations.is_empty());
+    assert!(before.session_a_detail.is_some());
 
     claudit::ingest::reingest(&env.paths).expect("reingest succeeds");
 

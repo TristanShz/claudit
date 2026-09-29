@@ -41,7 +41,7 @@
       <thead><tr><th>Type</th><th class="num">Runs</th><th class="num">Time</th><th>Model</th></tr></thead>
       <tbody>
         {% for a in subagents %}
-        <tr><td class="name" title="{{ a.agent_type }}">{{ a.agent_type }}</td><td class="num">{{ a.runs }}</td><td class="num">{{ a.time }}</td><td class="muted small name" title="{{ a.model }}">{{ a.model }}</td></tr>
+        <tr><td class="name" title="{{ a.agent_type }}">{{ a.agent_type }}</td><td class="num">{{ a.runs }}</td><td class="num">{{ a.time }}</td><td class="muted small model" title="{{ a.model }}">{{ a.model }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
