@@ -22,6 +22,13 @@ Expected totals (tokens counted once per `message.id`):
 | `2b7e4f10` | 1 | 5 | 150 | 3200 | 3000 |
 | `5c9d1e22` | 1 | 2 | 500 | 5000 | 1000 |
 
+Cost fixtures live in `cost/`, outside `projects/`, so `drop_projects_fixture`
+and the totals above are unaffected; `tests/cost.rs` drops them explicitly:
+
+| File | What it covers |
+| --- | --- |
+| `cost/7e3a9c51-….jsonl` | One-turn session in `acme-api` (2026-03-05) on a model absent from the price table, `claude-nebula-9`: input 10, output 400, cache write 2000, cache read 6000. Its cost must be reported as unknown. |
+
 The files are generated for readability, not captured verbatim. When the
 upstream format changes, add fixtures for the new version next to these
 rather than editing them.

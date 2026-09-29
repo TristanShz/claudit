@@ -50,6 +50,15 @@ impl TokenTotals {
     }
 }
 
+impl std::ops::AddAssign for TokenTotals {
+    fn add_assign(&mut self, more: Self) {
+        self.input += more.input;
+        self.output += more.output;
+        self.cache_write += more.cache_write;
+        self.cache_read += more.cache_read;
+    }
+}
+
 /// Headline consumption over the filtered archive.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct Consumption {

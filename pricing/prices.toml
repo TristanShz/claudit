@@ -1,0 +1,167 @@
+# Anthropic API list prices, in USD per million tokens (MTok), compiled into
+# claudit (`claudit::pricing::PriceTable::builtin`). Cost is computed from
+# token counts at query time, so correcting a price here and rebuilding
+# reprices the whole archive without re-ingesting.
+#
+# Source: https://platform.claude.com/docs/en/about-claude/pricing
+#         (redirected from https://docs.claude.com/en/docs/about-claude/pricing),
+#         "Model pricing" table, read on 2026-09-29.
+# Standard first-party rates only: no batch discount, fast mode, data
+# residency (`inference_geo: "us"`, 1.1x) or partner-platform pricing.
+#
+# Keys are model ids as the API reports them in `message.model`. Lookups
+# also strip a `[1m]`-style context suffix, a snapshot date (`-20251001`
+# or `@20251001`) and a provider prefix (`us.anthropic.`), then match the id
+# or one of its `aliases` exactly: a point release missing here is reported
+# as unknown rather than priced as its family.
+#
+# Token classes: `input` (uncached input), `output`, `cache_write_5m` /
+# `cache_write_1h` (prompt-cache writes by TTL) and `cache_read` (hits and
+# refreshes). Values must have at most 6 decimals.
+
+version = "2026-09-29"
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+
+# ---- Fable / Mythos ---------------------------------------------------------
+
+[models.claude-fable-5-1]
+input = 10.0
+output = 50.0
+cache_write_5m = 12.50
+cache_write_1h = 20.0
+cache_read = 0.25
+
+[models.claude-mythos-5-1]
+input = 10.0
+output = 50.0
+cache_write_5m = 12.50
+cache_write_1h = 20.0
+cache_read = 0.25
+
+[models.claude-fable-5]
+input = 10.0
+output = 50.0
+cache_write_5m = 12.50
+cache_write_1h = 20.0
+cache_read = 1.0
+
+[models.claude-mythos-5]
+input = 10.0
+output = 50.0
+cache_write_5m = 12.50
+cache_write_1h = 20.0
+cache_read = 1.0
+
+# ---- Opus -------------------------------------------------------------------
+
+[models.claude-opus-5-5]
+input = 4.0
+output = 20.0
+cache_write_5m = 5.0
+cache_write_1h = 8.0
+cache_read = 0.20
+
+[models.claude-opus-5]
+input = 5.0
+output = 25.0
+cache_write_5m = 6.25
+cache_write_1h = 10.0
+cache_read = 0.50
+
+[models.claude-opus-4-8]
+input = 5.0
+output = 25.0
+cache_write_5m = 6.25
+cache_write_1h = 10.0
+cache_read = 0.50
+
+[models.claude-opus-4-7]
+input = 5.0
+output = 25.0
+cache_write_5m = 6.25
+cache_write_1h = 10.0
+cache_read = 0.50
+
+[models.claude-opus-4-6]
+input = 5.0
+output = 25.0
+cache_write_5m = 6.25
+cache_write_1h = 10.0
+cache_read = 0.50
+
+[models.claude-opus-4-5]
+input = 5.0
+output = 25.0
+cache_write_5m = 6.25
+cache_write_1h = 10.0
+cache_read = 0.50
+
+[models.claude-opus-4-1]
+input = 15.0
+output = 75.0
+cache_write_5m = 18.75
+cache_write_1h = 30.0
+cache_read = 1.50
+
+[models.claude-opus-4]
+aliases = ["claude-opus-4-0"]
+input = 15.0
+output = 75.0
+cache_write_5m = 18.75
+cache_write_1h = 30.0
+cache_read = 1.50
+
+# ---- Sonnet -----------------------------------------------------------------
+
+[models.claude-sonnet-5-5]
+input = 2.0
+output = 10.0
+cache_write_5m = 2.50
+cache_write_1h = 4.0
+cache_read = 0.20
+
+[models.claude-sonnet-5]
+input = 2.0
+output = 10.0
+cache_write_5m = 2.50
+cache_write_1h = 4.0
+cache_read = 0.20
+
+[models.claude-sonnet-4-6]
+input = 3.0
+output = 15.0
+cache_write_5m = 3.75
+cache_write_1h = 6.0
+cache_read = 0.30
+
+[models.claude-sonnet-4-5]
+input = 3.0
+output = 15.0
+cache_write_5m = 3.75
+cache_write_1h = 6.0
+cache_read = 0.30
+
+[models.claude-sonnet-4]
+aliases = ["claude-sonnet-4-0"]
+input = 3.0
+output = 15.0
+cache_write_5m = 3.75
+cache_write_1h = 6.0
+cache_read = 0.30
+
+# ---- Haiku ------------------------------------------------------------------
+
+[models.claude-haiku-4-5]
+input = 1.0
+output = 5.0
+cache_write_5m = 1.25
+cache_write_1h = 2.0
+cache_read = 0.10
+
+[models.claude-3-5-haiku]
+aliases = ["claude-haiku-3-5"]
+input = 0.80
+output = 4.0
+cache_write_5m = 1.0
+cache_write_1h = 1.60
+cache_read = 0.08
