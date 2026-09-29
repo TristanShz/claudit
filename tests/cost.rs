@@ -8,21 +8,23 @@
 //! Nothing here looks at tables.
 //!
 //! Hand computation for fixture session `8d0c5a3e` (tokens from the fixtures
-//! README, prices from `pricing/prices.toml`, $/MTok = µ$/token):
+//! README, prices from `pricing/prices.toml`, $/MTok = µ$/token). Every
+//! cache write in the `projects/` fixtures is a 1-hour write
+//! (`ephemeral_1h_input_tokens`), priced at the 1h rate:
 //!
-//! - main thread, claude-opus-5-5 ($4 in, $20 out, $5 5m cache write,
+//! - main thread, claude-opus-5-5 ($4 in, $20 out, $8 1h cache write,
 //!   $0.20 cache read):
-//!   7×4 + 1162×20 + 15000×5 + 71300×0.20
-//!   = 28 + 23240 + 75000 + 14260 = 112528 µ$
+//!   7×4 + 1162×20 + 15000×8 + 71300×0.20
+//!   = 28 + 23240 + 120000 + 14260 = 157528 µ$
 //! - subagent, claude-haiku-4-5-20251001 → claude-haiku-4-5 ($1 in, $5 out,
-//!   $1.25 5m cache write, $0.10 cache read):
-//!   6×1 + 300×5 + 4300×1.25 + 4000×0.10
-//!   = 6 + 1500 + 5375 + 400 = 7281 µ$
-//! - session total: 112528 + 7281 = 119809 µ$ = $0.119809
+//!   $2 1h cache write, $0.10 cache read):
+//!   6×1 + 300×5 + 4300×2 + 4000×0.10
+//!   = 6 + 1500 + 8600 + 400 = 10506 µ$
+//! - session total: 157528 + 10506 = 168034 µ$ = $0.168034
 //!
 //! The turn-2 messages attributed to skill `code-review` (opus-5-5):
-//!   3×4 + 650×20 + 2100×5 + 43300×0.20
-//!   = 12 + 13000 + 10500 + 8660 = 32172 µ$
+//!   3×4 + 650×20 + 2100×8 + 43300×0.20
+//!   = 12 + 13000 + 16800 + 8660 = 38472 µ$
 
 mod common;
 
@@ -37,6 +39,7 @@ const ACME: &str = "-Users-alice-code-acme-api";
 const SESSION_A: &str = "8d0c5a3e-1b2f-4c6d-9e7a-0f1b2c3d4e5f";
 const SESSION_B: &str = "2b7e4f10-3c5d-4e6f-8a9b-1c2d3e4f5a6b";
 const UNKNOWN_SESSION: &str = "7e3a9c51-4d2b-4f8e-9a1c-3b5d7f9e1a2c";
+const SPLIT_SESSION: &str = "4f6b8d02-5e7a-4c1b-9d3f-6a8c0e2b4d61";
 
 fn drop_session_a(env: &TestEnv) {
     env.drop_transcript_fixture(&format!("{ACME}/{SESSION_A}.jsonl"));
@@ -45,12 +48,16 @@ fn drop_session_a(env: &TestEnv) {
     ));
 }
 
-/// Drops the unknown-model session, kept outside `projects/` so the other
-/// test files' whole-tree fixtures (and their expected totals) are unchanged.
+/// Drops a cost fixture session, kept outside `projects/` so the other test
+/// files' whole-tree fixtures (and their expected totals) are unchanged.
+fn drop_cost_fixture(env: &TestEnv, session: &str) {
+    let path = fixtures_dir().join(format!("transcripts/cost/{session}.jsonl"));
+    let contents = std::fs::read_to_string(path).expect("read cost fixture");
+    env.drop_transcript(&format!("{ACME}/{session}.jsonl"), &contents);
+}
+
 fn drop_unknown_model_session(env: &TestEnv) {
-    let path = fixtures_dir().join(format!("transcripts/cost/{UNKNOWN_SESSION}.jsonl"));
-    let contents = std::fs::read_to_string(path).expect("read unknown-model fixture");
-    env.drop_transcript(&format!("{ACME}/{UNKNOWN_SESSION}.jsonl"), &contents);
+    drop_cost_fixture(env, UNKNOWN_SESSION);
 }
 
 fn builtin() -> &'static PriceTable {
@@ -64,13 +71,13 @@ fn a_session_costs_its_tokens_at_list_prices() {
     env.ingest();
 
     let total = cost::total_cost(&env.db(), &Filter::default(), builtin()).unwrap();
-    assert_eq!(total.cost.total(), Some(Usd::from_micros(119_809)));
+    assert_eq!(total.cost.total(), Some(Usd::from_micros(168_034)));
     assert!(total.cost.is_complete());
 
     let sessions = cost::cost_by_session(&env.db(), &Filter::default(), builtin()).unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].key, SESSION_A);
-    assert_eq!(sessions[0].cost.total(), Some(Usd::from_micros(119_809)));
+    assert_eq!(sessions[0].cost.total(), Some(Usd::from_micros(168_034)));
 }
 
 #[test]
@@ -104,9 +111,9 @@ fn a_price_correction_changes_the_cost_without_reingesting() {
     .unwrap();
     let after = cost::total_cost(&env.db(), &Filter::default(), &corrected).unwrap();
 
-    assert_eq!(before.cost.total(), Some(Usd::from_micros(119_809)));
-    // 2 × 112528 + 7281
-    assert_eq!(after.cost.total(), Some(Usd::from_micros(232_337)));
+    assert_eq!(before.cost.total(), Some(Usd::from_micros(168_034)));
+    // 2 × 157528 + 10506
+    assert_eq!(after.cost.total(), Some(Usd::from_micros(325_562)));
     assert_eq!(after.tokens, before.tokens);
 }
 
@@ -147,14 +154,14 @@ fn a_mix_of_known_and_unknown_models_reports_the_known_part_as_incomplete() {
     env.ingest();
 
     let total = cost::total_cost(&env.db(), &Filter::default(), builtin()).unwrap();
-    assert_eq!(total.cost.known, Usd::from_micros(119_809));
+    assert_eq!(total.cost.known, Usd::from_micros(168_034));
     assert!(!total.cost.is_complete());
     assert_eq!(total.cost.total(), None);
 
     let sessions = cost::cost_by_session(&env.db(), &Filter::default(), builtin()).unwrap();
     let a = sessions.iter().find(|s| s.key == SESSION_A).unwrap();
     let unknown = sessions.iter().find(|s| s.key == UNKNOWN_SESSION).unwrap();
-    assert_eq!(a.cost.total(), Some(Usd::from_micros(119_809)));
+    assert_eq!(a.cost.total(), Some(Usd::from_micros(168_034)));
     assert_eq!(unknown.cost.total(), None);
 }
 
@@ -173,21 +180,21 @@ fn cost_is_broken_down_by_model_skill_and_subagent_type() {
     assert_eq!(
         models,
         vec![
-            ("claude-opus-5-5", Some(Usd::from_micros(112_528))),
-            ("claude-haiku-4-5-20251001", Some(Usd::from_micros(7_281))),
+            ("claude-opus-5-5", Some(Usd::from_micros(157_528))),
+            ("claude-haiku-4-5-20251001", Some(Usd::from_micros(10_506))),
         ]
     );
 
     let skills = cost::cost_by_skill(&db, &all, builtin()).unwrap();
     assert_eq!(skills.len(), 1);
     assert_eq!(skills[0].key, "code-review");
-    assert_eq!(skills[0].cost.total(), Some(Usd::from_micros(32_172)));
+    assert_eq!(skills[0].cost.total(), Some(Usd::from_micros(38_472)));
 
     let agents = cost::cost_by_agent_type(&db, &all, builtin()).unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].key, "general-purpose");
     assert_eq!(agents[0].tokens.output, 300);
-    assert_eq!(agents[0].cost.total(), Some(Usd::from_micros(7_281)));
+    assert_eq!(agents[0].cost.total(), Some(Usd::from_micros(10_506)));
 }
 
 #[test]
@@ -202,9 +209,9 @@ fn the_daily_series_has_tokens_and_cost_per_day_and_model() {
         .iter()
         .map(|p| (p.day, p.model.as_str(), p.tokens.total(), p.cost.total()))
         .collect();
-    // Session B, claude-sonnet-4-6 ($3 in, $15 out, $3.75 5m write,
-    // $0.30 read): 5×3 + 150×15 + 3200×3.75 + 3000×0.30
-    // = 15 + 2250 + 12000 + 900 = 15165 µ$
+    // Session B, claude-sonnet-4-6 ($3 in, $15 out, $6 1h write,
+    // $0.30 read): 5×3 + 150×15 + 3200×6 + 3000×0.30
+    // = 15 + 2250 + 19200 + 900 = 22365 µ$
     let day = |d| NaiveDate::from_ymd_opt(2026, 3, d).unwrap();
     assert_eq!(
         rows,
@@ -213,19 +220,19 @@ fn the_daily_series_has_tokens_and_cost_per_day_and_model() {
                 day(2),
                 "claude-haiku-4-5-20251001",
                 8_606,
-                Some(Usd::from_micros(7_281))
+                Some(Usd::from_micros(10_506))
             ),
             (
                 day(2),
                 "claude-opus-5-5",
                 87_469,
-                Some(Usd::from_micros(112_528))
+                Some(Usd::from_micros(157_528))
             ),
             (
                 day(3),
                 "claude-sonnet-4-6",
                 6_355,
-                Some(Usd::from_micros(15_165))
+                Some(Usd::from_micros(22_365))
             ),
         ]
     );
@@ -241,4 +248,29 @@ fn model_ids_resolve_through_snapshot_dates_and_context_suffixes() {
     // A newer point release is not silently priced as its family.
     assert_eq!(prices.price("claude-opus-5-7"), None);
     assert_ne!(prices.price("claude-opus-5"), Some(base));
+}
+
+#[test]
+fn one_hour_cache_writes_are_priced_at_their_own_rate() {
+    let env = TestEnv::new();
+    drop_cost_fixture(&env, SPLIT_SESSION);
+    env.ingest();
+
+    // One claude-opus-5-5 response streamed over two entries: input 10,
+    // output 100 (MAX of 40 and 100), cache read 2000, and 4000 cache-write
+    // tokens split 1000 5-minute ($5/MTok) + 3000 1-hour ($8/MTok):
+    //   10×4 + 100×20 + 1000×5 + 3000×8 + 2000×0.20
+    //   = 40 + 2000 + 5000 + 24000 + 400 = 31440 µ$
+    // (all 4000 at the 5m rate would be 40 + 2000 + 20000 + 400 = 22440 µ$).
+    let total = cost::total_cost(&env.db(), &Filter::default(), builtin()).unwrap();
+    assert_eq!(
+        total.tokens,
+        TokenTotals {
+            input: 10,
+            output: 100,
+            cache_write: 4000,
+            cache_read: 2000,
+        }
+    );
+    assert_eq!(total.cost.total(), Some(Usd::from_micros(31_440)));
 }

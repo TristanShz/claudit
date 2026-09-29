@@ -202,8 +202,8 @@ fn project(conn: &Connection, entry: &Entry, file_agent: Option<&str>) -> Result
                     "INSERT INTO api_messages (
                          message_id, session_id, prompt_id, agent_id, agent_type, model,
                          at_us, input_tokens, output_tokens, cache_write_tokens,
-                         cache_read_tokens, skill
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                         cache_read_tokens, skill, cache_write_1h_tokens
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                      ON CONFLICT(message_id) DO UPDATE SET
                          prompt_id          = COALESCE(prompt_id, excluded.prompt_id),
                          agent_type         = COALESCE(agent_type, excluded.agent_type),
@@ -212,7 +212,9 @@ fn project(conn: &Connection, entry: &Entry, file_agent: Option<&str>) -> Result
                          output_tokens      = MAX(output_tokens, excluded.output_tokens),
                          cache_write_tokens = MAX(cache_write_tokens, excluded.cache_write_tokens),
                          cache_read_tokens  = MAX(cache_read_tokens, excluded.cache_read_tokens),
-                         skill              = COALESCE(skill, excluded.skill)",
+                         skill              = COALESCE(skill, excluded.skill),
+                         cache_write_1h_tokens =
+                             MAX(cache_write_1h_tokens, excluded.cache_write_1h_tokens)",
                     params![
                         message.message_id,
                         entry.session_id,
@@ -226,6 +228,7 @@ fn project(conn: &Connection, entry: &Entry, file_agent: Option<&str>) -> Result
                         message.usage.cache_creation_input_tokens,
                         message.usage.cache_read_input_tokens,
                         message.skill,
+                        message.usage.cache_write_1h_tokens(),
                     ],
                 )?;
             }

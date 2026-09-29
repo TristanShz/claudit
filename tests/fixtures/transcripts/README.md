@@ -28,6 +28,9 @@ and the totals above are unaffected; `tests/cost.rs` drops them explicitly:
 | File | What it covers |
 | --- | --- |
 | `cost/7e3a9c51-….jsonl` | One-turn session in `acme-api` (2026-03-05) on a model absent from the price table, `claude-nebula-9`: input 10, output 400, cache write 2000, cache read 6000. Its cost must be reported as unknown. |
+| `cost/4f6b8d02-….jsonl` | One-turn session in `acme-api` (2026-03-06), Opus 5.5, one response streamed over two entries whose cache writes are split by TTL (`cache_creation`: 1000 5-minute + 3000 1-hour): input 10, output 100, cache write 4000, cache read 2000. The two TTLs must be priced at their own rates. |
+
+Every cache write in `projects/` is a 1-hour write (`ephemeral_1h_input_tokens`).
 
 The files are generated for readability, not captured verbatim. When the
 upstream format changes, add fixtures for the new version next to these

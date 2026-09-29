@@ -93,14 +93,16 @@ pub struct ModelPrice {
 }
 
 impl ModelPrice {
-    /// The cost of `tokens`. Archived cache writes are not split by TTL, so
-    /// they are all priced as 5-minute writes (a lower bound when some were
-    /// 1-hour writes).
-    pub fn cost(&self, tokens: &TokenTotals) -> Usd {
+    /// The cost of `tokens`, of whose `cache_write` tokens `cache_write_1h`
+    /// were 1-hour writes; the rest are priced as 5-minute writes.
+    pub fn cost(&self, tokens: &TokenTotals, cache_write_1h: u64) -> Usd {
         let term = |n: u64, price: u64| n.saturating_mul(price);
+        let cache_write_1h = cache_write_1h.min(tokens.cache_write);
+        let cache_write_5m = tokens.cache_write - cache_write_1h;
         Usd(term(tokens.input, self.input)
             .saturating_add(term(tokens.output, self.output))
-            .saturating_add(term(tokens.cache_write, self.cache_write_5m))
+            .saturating_add(term(cache_write_5m, self.cache_write_5m))
+            .saturating_add(term(cache_write_1h, self.cache_write_1h))
             .saturating_add(term(tokens.cache_read, self.cache_read)))
     }
 }
@@ -231,11 +233,12 @@ pub struct Cost {
 }
 
 impl Cost {
-    /// Prices `tokens` of `model` with `prices`.
-    pub fn of(prices: &PriceTable, model: &str, tokens: &TokenTotals) -> Self {
+    /// Prices `tokens` of `model` with `prices`, `cache_write_1h` of the
+    /// cache writes at the 1-hour rate (see [`ModelPrice::cost`]).
+    pub fn of(prices: &PriceTable, model: &str, tokens: &TokenTotals, cache_write_1h: u64) -> Self {
         match prices.price(model) {
             Some(price) => Cost {
-                known: price.cost(tokens),
+                known: price.cost(tokens, cache_write_1h),
                 ..Cost::default()
             },
             None => Cost {

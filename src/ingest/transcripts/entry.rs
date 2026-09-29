@@ -77,6 +77,25 @@ pub(super) struct Usage {
     pub cache_creation_input_tokens: i64,
     #[serde(default)]
     pub cache_read_input_tokens: i64,
+    /// The TTL split of `cache_creation_input_tokens`, when reported.
+    #[serde(default)]
+    pub cache_creation: Option<CacheCreation>,
+}
+
+impl Usage {
+    /// The cache-write tokens written with a 1-hour TTL; 0 without a split,
+    /// so every write then counts as a 5-minute write.
+    pub fn cache_write_1h_tokens(&self) -> i64 {
+        self.cache_creation
+            .as_ref()
+            .map_or(0, |split| split.ephemeral_1h_input_tokens)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CacheCreation {
+    #[serde(default)]
+    pub ephemeral_1h_input_tokens: i64,
 }
 
 #[derive(Deserialize)]

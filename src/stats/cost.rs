@@ -106,10 +106,10 @@ pub fn daily_series(
         "m.at_us IS NOT NULL",
     )?;
     rows.into_iter()
-        .map(|(day, model, tokens)| {
+        .map(|(day, model, tokens, cache_write_1h)| {
             Ok(DailyUsage {
                 day: NaiveDate::parse_from_str(&day, "%Y-%m-%d")?,
-                cost: Cost::of(prices, &model, &tokens),
+                cost: Cost::of(prices, &model, &tokens, cache_write_1h),
                 model,
                 tokens,
             })
@@ -127,7 +127,7 @@ fn grouped(
     condition: &str,
 ) -> Result<Vec<CostLine>> {
     let mut lines: Vec<CostLine> = Vec::new();
-    for (key, model, tokens) in per_model_sums(conn, filter, key_sql, condition)? {
+    for (key, model, tokens, cache_write_1h) in per_model_sums(conn, filter, key_sql, condition)? {
         if lines.last().is_none_or(|line| line.key != key) {
             lines.push(CostLine {
                 key,
@@ -136,22 +136,25 @@ fn grouped(
         }
         let line = lines.last_mut().expect("pushed above");
         line.tokens += tokens;
-        line.cost.add(&Cost::of(prices, &model, &tokens));
+        line.cost
+            .add(&Cost::of(prices, &model, &tokens, cache_write_1h));
     }
     lines.sort_by(|a, b| b.cost.known.cmp(&a.cost.known).then(a.key.cmp(&b.key)));
     Ok(lines)
 }
 
-/// `(key, model, tokens)` rows ordered by key then model.
+/// `(key, model, tokens, 1-hour cache writes among tokens.cache_write)` rows
+/// ordered by key then model.
 fn per_model_sums(
     conn: &Connection,
     filter: &Filter,
     key_sql: &str,
     condition: &str,
-) -> Result<Vec<(String, String, TokenTotals)>> {
+) -> Result<Vec<(String, String, TokenTotals, u64)>> {
     let where_ = filter.sql(&MESSAGE_COLUMNS)?;
     let sql = format!(
-        "SELECT {key_sql} AS k, COALESCE(m.model, '') AS mdl, {sums}
+        "SELECT {key_sql} AS k, COALESCE(m.model, '') AS mdl,
+                COALESCE(SUM(m.cache_write_1h_tokens), 0), {sums}
          FROM api_messages m LEFT JOIN sessions s ON s.session_id = m.session_id
          WHERE {condition} AND {clause}
          GROUP BY k, mdl
@@ -161,7 +164,12 @@ fn per_model_sums(
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(where_.params), |row| {
-        Ok((row.get(0)?, row.get(1)?, TokenTotals::from_row(row, 2)?))
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            TokenTotals::from_row(row, 3)?,
+            row.get::<_, i64>(2)?.max(0) as u64,
+        ))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
