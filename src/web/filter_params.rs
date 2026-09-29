@@ -36,4 +36,24 @@ impl FilterParams {
             model: non_empty(&self.model),
         }
     }
+
+    /// The non-empty parameters as a query string: `""` or `?from=…&…`, to
+    /// carry the filter over to links.
+    pub fn query(&self) -> String {
+        let pairs: Vec<(&str, &str)> = [
+            ("from", &self.from),
+            ("to", &self.to),
+            ("project", &self.project),
+            ("branch", &self.branch),
+            ("model", &self.model),
+        ]
+        .into_iter()
+        .filter(|(_, v)| !v.trim().is_empty())
+        .map(|(k, v)| (k, v.as_str()))
+        .collect();
+        match serde_urlencoded::to_string(&pairs) {
+            Ok(q) if !q.is_empty() => format!("?{q}"),
+            _ => String::new(),
+        }
+    }
 }

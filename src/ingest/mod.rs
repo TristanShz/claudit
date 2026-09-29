@@ -24,6 +24,9 @@ use crate::redact;
 pub use lock::IngestLock;
 pub use purge::SPOOL_IDLE_PURGE_AFTER;
 
+/// `meta` key: when the last [`catch_up`] finished (µs since the epoch).
+pub const META_LAST_INGEST_AT: &str = "last_ingest_at_us";
+
 /// Upper bound on passes per catch-up, so input that never stops growing
 /// cannot keep one ingest process alive forever (the next `Stop` resumes).
 const MAX_PASSES: usize = 100;
@@ -138,6 +141,15 @@ pub fn catch_up(paths: &Paths, clock: &dyn Clock) -> Result<IngestOutcome> {
         }
         total.absorb(pass);
     }
-    purge::purge_spool(&db::open(paths)?, paths, clock)?;
+    let conn = db::open(paths)?;
+    purge::purge_spool(&conn, paths, clock)?;
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![
+            META_LAST_INGEST_AT,
+            crate::clock::to_micros(clock.now()).to_string()
+        ],
+    )?;
     Ok(IngestOutcome::Ran(total))
 }

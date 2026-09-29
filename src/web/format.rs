@@ -35,3 +35,36 @@ pub(super) fn percent(ratio: f64) -> String {
 pub(super) fn script_json<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
     Ok(serde_json::to_string(value)?.replace('<', "\\u003c"))
 }
+
+/// A chrono duration, as [`duration_ms`] (negative durations count as 0).
+pub(super) fn duration(d: chrono::Duration) -> String {
+    duration_ms(d.num_milliseconds().max(0) as u64)
+}
+
+/// An instant in the machine's time zone: `2026-03-02 09:00`.
+pub(super) fn local_time(at: chrono::DateTime<chrono::Utc>) -> String {
+    at.with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %H:%M")
+        .to_string()
+}
+
+/// A cost: `$12.34`, `$12.34+` when some models are unpriced, `unknown`
+/// when none is (never `$0` for unpriced tokens).
+pub(super) fn cost(cost: &crate::pricing::Cost) -> String {
+    if cost.is_complete() {
+        cost.known.to_string()
+    } else if cost.known.picos() == 0 {
+        "unknown".to_owned()
+    } else {
+        format!("{}+", cost.known)
+    }
+}
+
+/// `text` cut to at most `max` characters, with an ellipsis when cut.
+pub(super) fn truncate(text: &str, max: usize) -> String {
+    let text = text.trim();
+    match text.char_indices().nth(max) {
+        Some((at, _)) => format!("{}…", text[..at].trim_end()),
+        None => text.to_owned(),
+    }
+}

@@ -6,6 +6,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::clock;
+use crate::ingest::META_LAST_INGEST_AT;
 use crate::ingest::transcripts::{META_BACKFILLED_AT, META_SKIPPED_LINES};
 
 /// Archive-wide ingest state (not subject to filters).
@@ -15,6 +16,11 @@ pub struct IngestStatus {
     pub skipped_transcript_lines: u64,
     /// When the first full pass over the transcripts on disk finished.
     pub transcripts_backfilled_at: Option<DateTime<Utc>>,
+    /// When the last catch-up ingest (`claudit ingest`, `serve`'s start or
+    /// its Refresh button) finished.
+    pub last_ingest_at: Option<DateTime<Utc>>,
+    /// Whether any hook event or session was ever recorded.
+    pub has_data: bool,
 }
 
 pub fn ingest_status(conn: &Connection) -> Result<IngestStatus> {
@@ -29,5 +35,11 @@ pub fn ingest_status(conn: &Connection) -> Result<IngestStatus> {
     Ok(IngestStatus {
         skipped_transcript_lines: meta(META_SKIPPED_LINES)?.unwrap_or(0).max(0) as u64,
         transcripts_backfilled_at: meta(META_BACKFILLED_AT)?.map(clock::from_micros),
+        last_ingest_at: meta(META_LAST_INGEST_AT)?.map(clock::from_micros),
+        has_data: conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM raw_events) OR EXISTS (SELECT 1 FROM sessions)",
+            [],
+            |row| row.get(0),
+        )?,
     })
 }

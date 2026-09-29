@@ -5,7 +5,7 @@
     "tools-bar": (rows) => ({
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
       grid: { left: 8, right: 16, top: 8, bottom: 8, containLabel: true },
-      xAxis: { type: "value", name: "calls" },
+      xAxis: { type: "value", minInterval: 1 },
       yAxis: { type: "category", inverse: true, data: rows.map((r) => r.name) },
       series: [{ type: "bar", data: rows.map((r) => r.calls), itemStyle: { color: "#c2410c" } }],
     }),
@@ -66,6 +66,17 @@
       chart.setOption(Object.assign({ backgroundColor: "transparent" }, render(JSON.parse(source.textContent))));
     });
   }
+
+  // Refresh runs an ingest before reloading: show that it is working.
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!form.matches || !form.matches("form.refresh")) return;
+    const button = form.querySelector("button");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Refreshing…";
+    }
+  });
 
   document.addEventListener("DOMContentLoaded", () => renderCharts(document));
   document.addEventListener("htmx:after:settle", () => renderCharts(document));

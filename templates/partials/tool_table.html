@@ -1,0 +1,8 @@
+<table class="ranking">
+  <thead><tr><th>{{ label }}</th><th class="num">Calls</th><th class="num">Total time</th><th class="num">Median</th><th class="num">p95</th><th class="num">Failures</th></tr></thead>
+  <tbody>
+    {% for tool in rows %}
+    <tr><td class="name" title="{{ tool.name }}">{{ tool.name }}</td><td class="num">{{ tool.calls }}</td><td class="num">{{ tool.total }}</td><td class="num">{{ tool.median }}</td><td class="num">{{ tool.p95 }}</td><td class="num">{{ tool.failure_rate }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

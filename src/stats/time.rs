@@ -82,10 +82,7 @@ impl TimeSplit {
     }
 
     fn add(&mut self, other: &TimeSplit) {
-        self.model += other.model;
-        self.tool += other.tool;
-        self.waiting += other.waiting;
-        self.subagent += other.subagent;
+        *self += *other;
     }
 
     fn component(&mut self, kind: SegmentKind) -> &mut Duration {
@@ -95,6 +92,15 @@ impl TimeSplit {
             SegmentKind::Waiting => &mut self.waiting,
             SegmentKind::Subagent => &mut self.subagent,
         }
+    }
+}
+
+impl std::ops::AddAssign for TimeSplit {
+    fn add_assign(&mut self, other: Self) {
+        self.model += other.model;
+        self.tool += other.tool;
+        self.waiting += other.waiting;
+        self.subagent += other.subagent;
     }
 }
 
@@ -158,20 +164,6 @@ pub(super) const TURN_COLUMNS: FilterColumns = FilterColumns {
     model: Some("m.model"),
 };
 
-/// Filter columns of `tool_calls tc LEFT JOIN sessions s`; a call's model
-/// is the first model of its turn (or subagent).
-const TOOL_CALL_COLUMNS: FilterColumns = FilterColumns {
-    time_us: "tc.post_at_us",
-    cwd: Some("COALESCE(tc.cwd, s.cwd)"),
-    branch: Some("s.git_branch"),
-    model: Some(
-        "(SELECT m.model FROM api_messages m
-          WHERE m.session_id = tc.session_id AND m.prompt_id = tc.prompt_id
-            AND m.agent_id IS tc.agent_id
-          ORDER BY m.at_us LIMIT 1)",
-    ),
-};
-
 const PERMISSION_COLUMNS: FilterColumns = FilterColumns {
     time_us: "pr.at_us",
     cwd: Some("COALESCE(pr.cwd, s.cwd)"),
@@ -232,7 +224,7 @@ pub fn waiting_by_tool(conn: &Connection, filter: &Filter) -> Result<Vec<ToolWai
         })
     }
 
-    let where_ = filter.sql(&TOOL_CALL_COLUMNS)?;
+    let where_ = filter.sql(&super::tools::TOOL_CALL_COLUMNS)?;
     let sql = format!(
         "SELECT tc.tool_name,
                 SUM(MAX(0, tc.post_at_us - tc.duration_ms * 1000 - tc.pre_at_us)),

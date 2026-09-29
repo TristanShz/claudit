@@ -7,10 +7,17 @@
 //! duration: the p-th percentile of `n` sorted durations is the value at
 //! 1-based rank `ceil(p / 100 × n)`. It is always an observed duration, and
 //! the median of an even count is the lower of the two middle values.
+//!
+//! Filters: the date range applies to the call's completion time; project
+//! matches the call's own `cwd` (else its session's); branch matches its
+//! session's git branch (calls of a session without transcript have none);
+//! model matches the model its turn — or, inside a subagent, its subagent
+//! thread — first called.
 
 use std::collections::BTreeMap;
 
 use anyhow::Result;
+use rusqlite::types::Value;
 use rusqlite::{Connection, params_from_iter};
 use serde::Serialize;
 
@@ -60,11 +67,17 @@ pub struct ToolStat {
     pub total_duration_ms: u64,
 }
 
-const COLUMNS: FilterColumns = FilterColumns {
-    time_us: "post_at_us",
-    cwd: Some("cwd"),
-    branch: None,
-    model: None,
+/// Filter columns of `tool_calls tc LEFT JOIN sessions s`.
+pub(super) const TOOL_CALL_COLUMNS: FilterColumns = FilterColumns {
+    time_us: "tc.post_at_us",
+    cwd: Some("COALESCE(tc.cwd, s.cwd)"),
+    branch: Some("s.git_branch"),
+    model: Some(
+        "(SELECT m.model FROM api_messages m
+          WHERE m.session_id = tc.session_id AND m.prompt_id = tc.prompt_id
+            AND m.agent_id IS tc.agent_id
+          ORDER BY m.at_us LIMIT 1)",
+    ),
 };
 
 /// Tools ranked by call count, with durations and failure rate.
@@ -97,15 +110,35 @@ pub fn top_tools(conn: &Connection, filter: &Filter) -> Result<Vec<ToolStat>> {
 
 /// Groups the filtered completed calls by `key` (a trusted column name).
 fn ranking(conn: &Connection, filter: &Filter, key: &str) -> Result<Vec<RankedCalls>> {
-    let where_ = filter.sql(&COLUMNS)?;
+    let where_ = filter.sql(&TOOL_CALL_COLUMNS)?;
+    rank(conn, key, &where_.clause, where_.params)
+}
+
+/// Every tool of one session, its subagents' calls included.
+pub fn session_tool_ranking(conn: &Connection, session_id: &str) -> Result<Vec<RankedCalls>> {
+    rank(
+        conn,
+        "tool_name",
+        "tc.session_id = ?",
+        vec![Value::Text(session_id.to_owned())],
+    )
+}
+
+/// Groups the completed calls matching `clause` by `key` (a trusted column
+/// of `tool_calls tc`).
+fn rank(
+    conn: &Connection,
+    key: &str,
+    clause: &str,
+    params: Vec<Value>,
+) -> Result<Vec<RankedCalls>> {
     let sql = format!(
-        "SELECT {key}, success, duration_ms
-         FROM tool_calls
-         WHERE post_at_us IS NOT NULL AND {key} IS NOT NULL AND {}",
-        where_.clause
+        "SELECT tc.{key}, tc.success, tc.duration_ms
+         FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
+         WHERE tc.post_at_us IS NOT NULL AND tc.{key} IS NOT NULL AND {clause}"
     );
     let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query(params_from_iter(where_.params))?;
+    let mut rows = stmt.query(params_from_iter(params))?;
 
     #[derive(Default)]
     struct Group {

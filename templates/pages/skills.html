@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}claudit · Skills{% endblock %}
+{% block content %}
+<section class="card" id="skills-section">
+  <h2>Skills</h2>
+  <p class="muted small">Time: from each invocation to the next skill of the turn, or the end of the turn. Tokens: API responses Claude Code attributes to the skill, subagents included.</p>
+  {% if skills.is_empty() %}
+  <p class="empty">No skill used for this filter.</p>
+  {% else %}
+  <table class="ranking">
+    <thead><tr><th>Skill</th><th class="num">Uses</th><th class="num">By you</th><th class="num">By Claude</th><th class="num">Time</th><th class="num">Tokens</th></tr></thead>
+    <tbody>
+      {% for s in skills %}
+      <tr>
+        <td class="name">{{ s.name }}{% if !s.pill.is_empty() %} <span class="pill pill-{{ s.pill_kind }}">{{ s.pill }}</span>{% endif %}</td>
+        <td class="num">{{ s.invocations }}</td><td class="num">{{ s.user_invocations }}</td><td class="num">{{ s.model_invocations }}</td>
+        <td class="num">{{ s.time }}</td><td class="num">{{ s.tokens }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% if frame.catching_up %}
+<div class="banner info" role="status" id="catching-up-banner">
+  Catching up on sessions recorded while the dashboard was off… Reload the page in a moment to see the latest data.
+</div>
+{% endif %}
+{% if let Some(warning) = frame.warning %}
+<div class="banner warning" role="status" id="ingest-warning">
+  {{ warning.skipped_lines }} transcript line{% if warning.skipped_lines != 1 %}s{% endif %} could not be read and
+  {% if warning.skipped_lines == 1 %}was{% else %}were{% endif %} skipped (unknown format).
+  Details in <code>{{ warning.log_path }}</code>.
+</div>
+{% endif %}

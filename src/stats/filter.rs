@@ -16,9 +16,10 @@ pub struct Filter {
     /// Project working directory: matches this directory and everything
     /// below it.
     pub project: Option<String>,
-    /// Git branch (requires session data, see `FilterColumns::branch`).
+    /// Git branch of the session.
     pub branch: Option<String>,
-    /// Model id (requires API message data, see `FilterColumns::model`).
+    /// Model id. Each report documents what it matches: API messages of
+    /// the model, and the sessions, turns or subagent threads that used it.
     pub model: Option<String>,
 }
 
@@ -72,7 +73,7 @@ impl Filter {
         ] {
             if let Some(value) = value {
                 let Some(column) = column else {
-                    bail!("this report cannot be filtered by {name} yet");
+                    bail!("this report cannot be filtered by {name}");
                 };
                 conditions.push(format!("{column} = ?"));
                 params.push(Value::Text(value.clone()));

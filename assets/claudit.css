@@ -8,11 +8,19 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
-.topbar { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.topbar { display: grid; gap: 10px; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.topbar-row { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+.nav { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.nav a { color: var(--text); text-decoration: none; }
+.nav a:hover { color: var(--accent); }
+.refresh { margin-left: auto; display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.refresh button { font: inherit; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; }
+.refresh button:disabled { opacity: .6; cursor: progress; }
 .brand { font-weight: 700; font-size: 16px; color: var(--accent); text-decoration: none; }
 .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .filters label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
-.filters input, .filters button { font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.filters select { max-width: 240px; }
+.filters input, .filters select, .filters button { font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
 .filters button { cursor: pointer; }
 main { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; gap: 24px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
@@ -29,6 +37,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; gap: 24p
 .kpi-value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .kpi-sub { color: var(--muted); font-size: 12px; min-height: 1em; }
 .banner { border-radius: 10px; padding: 10px 16px; border: 1px solid var(--border); }
+.banner.info { background: color-mix(in srgb, var(--series-model) 10%, var(--surface)); border-color: var(--series-model); }
 .banner.warning { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-color: var(--accent); }
 .banner code { font-size: 12px; overflow-wrap: anywhere; }
 /* Time split series (categorical slots 1-4, fixed order). */
@@ -50,3 +59,27 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; gap: 24p
 .pill-user { border-color: var(--series-model); }
 .pill-model { border-color: var(--series-tool); }
 .pill-both { border-style: dashed; }
+.row-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 24px; }
+.row-3 .card { min-width: 0; }
+.card h2 { display: flex; align-items: baseline; gap: 8px; }
+.all-link { margin-left: auto; font-size: 13px; font-weight: 400; color: var(--accent); text-decoration: none; }
+.all-link:hover, .ranking a:hover { text-decoration: underline; }
+.ranking a { color: inherit; text-decoration: none; }
+.ranking td.name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.small { font-size: 12px; }
+.nowrap { white-space: nowrap; }
+.table-scroll { overflow-x: auto; }
+.sessions td.prompt { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-bar { display: flex; width: 120px; height: 10px; border-radius: 3px; overflow: hidden; background: var(--border); }
+.seg { display: block; height: 100%; }
+.seg-model { background: var(--series-model); }
+.seg-tool { background: var(--series-tool); }
+.seg-waiting { background: var(--series-waiting); }
+.seg-subagent { background: var(--series-subagent); }
+.empty-state { padding: 32px; text-align: center; }
+.empty-state h2 { justify-content: center; font-size: 18px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 640px) {
+  .topbar, main { padding-left: 16px; padding-right: 16px; }
+  .refresh { margin-left: 0; }
+}

@@ -10,12 +10,29 @@
   <script src="/assets/claudit.js" defer></script>
 </head>
 <body>
+<div id="page">
   <header class="topbar">
-    <a class="brand" href="/">claudit</a>
+    <div class="topbar-row">
+      <a class="brand" href="/{{ frame.query }}">claudit</a>
+      <nav class="nav">
+        <a href="/{{ frame.query }}">Overview</a>
+        <a href="/sessions{{ frame.query }}">Sessions</a>
+        <a href="/tools{{ frame.query }}">Tools</a>
+        <a href="/skills{{ frame.query }}">Skills</a>
+        <a href="/subagents{{ frame.query }}">Subagents</a>
+      </nav>
+      <form class="refresh" method="post" action="/refresh">
+        <input type="hidden" name="back" value="{{ frame.current }}">
+        <span class="muted" id="last-ingest">Last ingest: {{ frame.last_ingest }}</span>
+        <button type="submit" title="Ingest pending sessions, then reload">Refresh</button>
+      </form>
+    </div>
     {% include "partials/filter_bar.html" %}
   </header>
   <main id="main">
+    {% include "partials/banners.html" %}
     {% block content %}{% endblock %}
   </main>
+</div>
 </body>
 </html>

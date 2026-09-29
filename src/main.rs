@@ -71,9 +71,8 @@ fn run(cli: Cli) -> Result<()> {
         Command::Hook => unreachable!("handled before argument parsing"),
         Command::Ingest => catch_up(&paths),
         Command::Serve { port } => {
-            // Catch up once at startup; the dashboard never polls afterwards.
-            eprintln!("claudit: catching up on pending ingestion…");
-            catch_up(&paths)?;
+            // Serve catches up once in the background at startup; the
+            // dashboard never polls afterwards.
             let runtime = tokio::runtime::Runtime::new()?;
             runtime.block_on(claudit::web::serve(paths, port))
         }

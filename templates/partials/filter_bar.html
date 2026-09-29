@@ -1,8 +1,26 @@
-{# Global filter bar. Works without JS (plain GET); with htmx it swaps only #main. #}
-<form class="filters" method="get" action=""
-      hx-get="" hx-target="#main" hx-select="#main" hx-swap="outerHTML" hx-push-url="true">
-  <label>From <input type="date" name="from" value="{{ filters.from }}"></label>
-  <label>To <input type="date" name="to" value="{{ filters.to }}"></label>
-  <label>Project <input type="text" name="project" value="{{ filters.project }}" placeholder="/path/to/project"></label>
+{# Global filter bar. Works without JS (plain GET); with htmx it swaps #page only. #}
+<form class="filters" id="filter-bar" method="get" action="{{ frame.filter_action }}"
+      hx-get="{{ frame.filter_action }}" hx-target="#page" hx-select="#page" hx-swap="outerHTML" hx-push-url="true">
+  <label>From <input type="date" name="from" value="{{ frame.filters.from }}"></label>
+  <label>To <input type="date" name="to" value="{{ frame.filters.to }}"></label>
+  <label>Project
+    <select name="project">
+      <option value="">All projects</option>
+      {% for p in frame.options.projects %}<option value="{{ p }}"{% if *p == frame.filters.project %} selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Branch
+    <select name="branch">
+      <option value="">All branches</option>
+      {% for b in frame.options.branches %}<option value="{{ b }}"{% if *b == frame.filters.branch %} selected{% endif %}>{{ b }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Model
+    <select name="model">
+      <option value="">All models</option>
+      {% for m in frame.options.models %}<option value="{{ m }}"{% if *m == frame.filters.model %} selected{% endif %}>{{ m }}</option>{% endfor %}
+    </select>
+  </label>
   <button type="submit">Apply</button>
+  {% if !frame.query.is_empty() %}<a class="muted" href="{{ frame.filter_action }}">Clear</a>{% endif %}
 </form>

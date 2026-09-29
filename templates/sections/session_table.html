@@ -1,0 +1,22 @@
+{% if sessions.is_empty() %}
+<p class="empty">No session for this filter.</p>
+{% else %}
+<div class="table-scroll">
+<table class="ranking sessions">
+  <thead><tr><th>Start</th><th>Project</th><th>First prompt</th><th>Split</th><th class="num">Duration</th><th class="num">Tools</th><th class="num">Cost</th></tr></thead>
+  <tbody>
+    {% for s in sessions %}
+    <tr>
+      <td class="nowrap"><a href="/sessions/{{ s.session_id }}{{ frame.query }}">{{ s.started }}</a></td>
+      <td class="nowrap" title="{{ s.cwd }}">{{ s.project }}{% if !s.branch.is_empty() %} <span class="pill">{{ s.branch }}</span>{% endif %}</td>
+      <td class="prompt"><a href="/sessions/{{ s.session_id }}{{ frame.query }}" title="{{ s.prompt_full }}">{% if s.prompt.is_empty() %}<span class="muted">(no prompt)</span>{% else %}{{ s.prompt }}{% endif %}</a></td>
+      <td>{% include "partials/mini_bar.html" %}</td>
+      <td class="num">{{ s.duration }}</td>
+      <td class="num">{{ s.tool_calls }}</td>
+      <td class="num">{{ s.cost }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}

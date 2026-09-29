@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}claudit · Subagents{% endblock %}
+{% block content %}
+<section class="card" id="subagents-section">
+  <h2>Subagent types</h2>
+  {% if subagents.is_empty() %}
+  <p class="empty">No subagent run for this filter.</p>
+  {% else %}
+  <table class="ranking">
+    <thead><tr><th>Type</th><th class="num">Runs</th><th class="num">Time</th><th class="num">Tool calls</th><th>Model</th><th class="num">Tokens</th></tr></thead>
+    <tbody>
+      {% for a in subagents %}
+      <tr><td class="name">{{ a.agent_type }}</td><td class="num">{{ a.runs }}</td><td class="num">{{ a.time }}</td><td class="num">{{ a.tool_calls }}</td><td class="muted">{{ a.model }}</td><td class="num">{{ a.tokens }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+<section class="card" id="runs-section">
+  <h2>Runs</h2>
+  {% if runs.is_empty() %}
+  <p class="empty">No subagent run for this filter.</p>
+  {% else %}
+  <div class="table-scroll">
+  <table class="ranking">
+    <thead><tr><th>Start</th><th>Type</th><th class="num">Duration</th><th class="num">Tool calls</th><th>Model</th><th class="num">Tokens</th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+      <tr><td class="nowrap"><a href="/sessions/{{ r.session_id }}{{ frame.query }}">{{ r.started }}</a></td><td>{{ r.agent_type }}</td><td class="num">{{ r.duration }}</td><td class="num">{{ r.tool_calls }}</td><td class="muted">{{ r.model }}</td><td class="num">{{ r.tokens }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
