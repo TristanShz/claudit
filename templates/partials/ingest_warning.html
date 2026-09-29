@@ -1,0 +1,7 @@
+{% if let Some(warning) = warning %}
+<div class="banner warning" role="status">
+  {{ warning.skipped_lines }} transcript line{% if warning.skipped_lines != 1 %}s{% endif %} could not be read and
+  {% if warning.skipped_lines == 1 %}was{% else %}were{% endif %} skipped (unknown format).
+  Details in <code>{{ warning.log_path }}</code>.
+</div>
+{% endif %}

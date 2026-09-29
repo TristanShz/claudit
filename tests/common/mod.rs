@@ -115,10 +115,42 @@ impl TestEnv {
         file.write_all(contents.as_bytes()).unwrap();
     }
 
+    /// Copies `tests/fixtures/transcripts/projects/<relative>` to the same
+    /// place under the Claude projects dir.
+    pub fn drop_transcript_fixture(&self, relative: &str) -> PathBuf {
+        self.drop_transcript(relative, &transcript_fixture(relative))
+    }
+
+    /// Copies the whole fixture projects tree (every session, subagents
+    /// included) into the Claude projects dir.
+    pub fn drop_projects_fixture(&self) {
+        copy_tree(
+            &fixtures_dir().join("transcripts/projects"),
+            &self.paths.claude_projects_dir(),
+        );
+    }
+
     // ---- ingest & stats ---------------------------------------------------
 
     pub fn ingest(&self) {
         claudit::ingest::run(&self.paths).expect("ingest succeeds");
+    }
+
+    /// Runs ingest and returns what it reports (counts of this run only).
+    pub fn ingest_report(&self) -> claudit::ingest::IngestReport {
+        claudit::ingest::run(&self.paths).expect("ingest succeeds")
+    }
+
+    pub fn consumption(&self, filter: &Filter) -> stats::consumption::Consumption {
+        stats::consumption::consumption(&self.db(), filter).expect("consumption")
+    }
+
+    pub fn sessions(&self, filter: &Filter) -> Vec<stats::sessions::SessionSummary> {
+        stats::sessions::session_list(&self.db(), filter).expect("session_list")
+    }
+
+    pub fn ingest_status(&self) -> stats::ingest_status::IngestStatus {
+        stats::ingest_status::ingest_status(&self.db()).expect("ingest_status")
     }
 
     /// A connection to the archive, for calling any `claudit::stats` report.
@@ -159,6 +191,25 @@ pub fn hook_fixture(name: &str) -> Value {
     let path = fixtures_dir().join("hooks").join(name);
     let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// Contents of `tests/fixtures/transcripts/projects/<relative>`.
+pub fn transcript_fixture(relative: &str) -> String {
+    let path = fixtures_dir().join("transcripts/projects").join(relative);
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
 }
 
 pub fn fixtures_dir() -> &'static Path {
