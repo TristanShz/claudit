@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}claudit{% endblock %}</title>
+  <link rel="stylesheet" href="/assets/claudit.css">
+  <script src="/assets/htmx.min.js" defer></script>
+  <script src="/assets/echarts.min.js" defer></script>
+  <script src="/assets/claudit.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">claudit</a>
+    {% include "partials/filter_bar.html" %}
+  </header>
+  <main id="main">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

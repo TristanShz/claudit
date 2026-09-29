@@ -1,0 +1,8 @@
+{# Global filter bar. Works without JS (plain GET); with htmx it swaps only #main. #}
+<form class="filters" method="get" action=""
+      hx-get="" hx-target="#main" hx-select="#main" hx-swap="outerHTML" hx-push-url="true">
+  <label>From <input type="date" name="from" value="{{ filters.from }}"></label>
+  <label>To <input type="date" name="to" value="{{ filters.to }}"></label>
+  <label>Project <input type="text" name="project" value="{{ filters.project }}" placeholder="/path/to/project"></label>
+  <button type="submit">Apply</button>
+</form>

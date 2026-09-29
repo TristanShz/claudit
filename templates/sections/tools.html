@@ -1,0 +1,17 @@
+<section class="card" id="tools-section">
+  <h2>Tools</h2>
+  {% if tools.is_empty() %}
+  <p class="empty">No tool calls recorded yet for this filter.</p>
+  {% else %}
+  <div class="chart" data-chart="tools-bar" data-source="tools-data"></div>
+  <script type="application/json" id="tools-data">{{ tools_chart_json|safe }}</script>
+  <table class="ranking">
+    <thead><tr><th>Tool</th><th class="num">Calls</th><th class="num">Total time</th></tr></thead>
+    <tbody>
+      {% for tool in tools %}
+      <tr><td>{{ tool.name }}</td><td class="num">{{ tool.calls }}</td><td class="num">{{ tool.total }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
