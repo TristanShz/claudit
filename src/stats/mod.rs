@@ -6,6 +6,7 @@
 //! uniformly.
 
 pub mod consumption;
+pub mod cost;
 mod filter;
 pub mod ingest_status;
 pub mod sessions;

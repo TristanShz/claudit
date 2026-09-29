@@ -11,6 +11,7 @@ pub mod ingest;
 pub mod install;
 pub mod logfile;
 pub mod paths;
+pub mod pricing;
 pub mod secure_fs;
 pub mod spool;
 pub mod stats;
