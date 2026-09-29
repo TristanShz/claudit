@@ -25,7 +25,7 @@ pub fn ingest(conn: &mut Connection, paths: &Paths) -> Result<IngestReport> {
 }
 
 /// The spool files, oldest name first (deterministic order).
-fn spool_files(dir: &Path) -> Result<Vec<PathBuf>> {
+pub(super) fn spool_files(dir: &Path) -> Result<Vec<PathBuf>> {
     if !dir.is_dir() {
         return Ok(Vec::new());
     }

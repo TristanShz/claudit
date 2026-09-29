@@ -58,6 +58,11 @@ impl Paths {
         self.home.join("claudit.db")
     }
 
+    /// The single-writer lock file taken by every ingest run.
+    pub fn ingest_lock_file(&self) -> PathBuf {
+        self.home.join("ingest.lock")
+    }
+
     /// Directory of claudit log files.
     pub fn logs_dir(&self) -> PathBuf {
         self.home.join("logs")
