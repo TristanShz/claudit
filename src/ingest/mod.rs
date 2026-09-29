@@ -1,20 +1,25 @@
 //! `claudit ingest`: loads new input (spool files, transcripts) into
 //! the archive. Idempotent: input already ingested is skipped via byte
-//! offsets, and normalized rows are deduplicated on natural keys.
+//! offsets, and normalized rows are deduplicated on natural keys. Secrets
+//! are redacted and outputs dropped before anything is stored
+//! (`crate::redact`).
 
 mod bash_command;
 pub mod events;
 mod lock;
 pub mod offsets;
 mod purge;
+pub mod reingest;
 pub mod spool;
 pub mod transcripts;
 
 use anyhow::Result;
+use rusqlite::{Connection, params};
 
 use crate::clock::Clock;
 use crate::db;
 use crate::paths::Paths;
+use crate::redact;
 
 pub use lock::IngestLock;
 pub use purge::SPOOL_IDLE_PURGE_AFTER;
@@ -64,9 +69,55 @@ impl IngestReport {
 /// other than [`catch_up`] must hold an [`IngestLock`] themselves.
 pub fn run(paths: &Paths) -> Result<IngestReport> {
     let mut conn = db::open(paths)?;
+    ingest_all(&mut conn, paths)
+}
+
+/// What `claudit reingest` did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReingestReport {
+    /// The replay of the archived hook events.
+    pub replay: reingest::Replay,
+    /// The ingest pass that followed (transcripts re-read from the start,
+    /// plus any new spool lines).
+    pub ingest: IngestReport,
+}
+
+/// How long `reingest` waits for a running ingest to release the lock.
+const REINGEST_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Rebuilds every derived table from `raw_events` and the transcripts still
+/// on disk (see [`reingest`]). Unlike [`catch_up`] it waits for a running
+/// ingest to finish instead of leaving the work to it.
+pub fn reingest(paths: &Paths) -> Result<ReingestReport> {
+    let deadline = std::time::Instant::now() + REINGEST_LOCK_WAIT;
+    let _lock = loop {
+        if let Some(lock) = IngestLock::try_acquire(paths)? {
+            break lock;
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "another ingest is still running; retry `claudit reingest` later"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    let mut conn = db::open(paths)?;
+    let replay = reingest::reset_and_replay(&mut conn, paths)?;
+    let ingest = ingest_all(&mut conn, paths)?;
+    Ok(ReingestReport { replay, ingest })
+}
+
+fn ingest_all(conn: &mut Connection, paths: &Paths) -> Result<IngestReport> {
     let mut report = IngestReport::default();
-    report.absorb(spool::ingest(&mut conn, paths)?);
-    report.absorb(transcripts::ingest(&mut conn, paths)?);
+    report.absorb(spool::ingest(conn, paths)?);
+    report.absorb(transcripts::ingest(conn, paths)?);
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![
+            redact::META_PATTERNS_VERSION,
+            redact::patterns_version().to_string()
+        ],
+    )?;
     Ok(report)
 }
 

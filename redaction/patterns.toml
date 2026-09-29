@@ -1,0 +1,58 @@
+# Secret patterns redacted from everything claudit stores (#7).
+#
+# Compiled into the binary (`src/redact.rs`) and applied, in order, to every
+# string of every hook payload and to transcript-derived text at ingest.
+# Each match becomes `replacement` (default "[REDACTED]"); `$name` refers to
+# a named capture group, so assignments keep their variable name.
+#
+# Rules for editing:
+# - Bump `version` on every change. Ingest records it in `meta`
+#   (`redaction_patterns_version`); `claudit reingest` re-applies the current
+#   list to the whole archive, raw events included.
+# - Patterns must be idempotent: a redacted text must be left unchanged by a
+#   second pass (the replacement must not match again as something else).
+# - Regex syntax is the Rust `regex` crate's. Use TOML literal strings ('…')
+#   so backslashes need no escaping.
+
+version = 1
+
+# Anthropic (`sk-ant-…`), OpenAI (`sk-…`, `sk-proj-…`) and similar API keys.
+[[pattern]]
+name = "sk-key"
+regex = '\bsk-[A-Za-z0-9][A-Za-z0-9_\-]{15,}'
+
+# GitHub personal, OAuth, user-to-server, server-to-server and refresh tokens.
+[[pattern]]
+name = "github-token"
+regex = '\bgh[pousr]_[A-Za-z0-9]{20,}'
+
+# GitHub fine-grained personal access tokens.
+[[pattern]]
+name = "github-pat"
+regex = '\bgithub_pat_[A-Za-z0-9_]{20,}'
+
+# AWS access key ids (long-term `AKIA…`, temporary `ASIA…`).
+[[pattern]]
+name = "aws-access-key-id"
+regex = '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
+
+# HTTP bearer tokens, e.g. `Authorization: Bearer eyJ…`.
+[[pattern]]
+name = "bearer"
+regex = '(?i)\b(?P<scheme>bearer)\s+[A-Za-z0-9\-._~+/]+=*'
+replacement = '$scheme [REDACTED]'
+
+# JSON-ish members whose name suggests a secret, inside a string (e.g. a
+# command embedding `{"password": "…"}`).
+[[pattern]]
+name = "json-secret-member"
+regex = '(?i)(?P<name>"[A-Za-z0-9_.\-]*(?:secret|key|token|password|passwd)[A-Za-z0-9_.\-]*"\s*:\s*)"(?:[^"\\]|\\.)*"'
+replacement = '$name"[REDACTED]"'
+
+# `NAME=value` assignments whose name contains SECRET, KEY, TOKEN or
+# PASSWORD (any case): `API_KEY=…`, `GITHUB_TOKEN=…`, `db_password='…'`.
+# The value is a quoted string or runs to the next space, quote, `&` or `;`.
+[[pattern]]
+name = "secret-assignment"
+regex = '''(?i)(?P<name>\b[A-Za-z0-9_.\-]*(?:secret|key|token|password|passwd)[A-Za-z0-9_]*)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s"'&;,]+)'''
+replacement = '$name=[REDACTED]'

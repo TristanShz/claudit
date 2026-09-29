@@ -2,7 +2,7 @@
 
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use claudit::clock::SystemClock;
 use claudit::ingest::IngestOutcome;
@@ -77,7 +77,20 @@ fn run(cli: Cli) -> Result<()> {
             let runtime = tokio::runtime::Runtime::new()?;
             runtime.block_on(claudit::web::serve(paths, port))
         }
-        Command::Reingest => not_yet_implemented("reingest"),
+        Command::Reingest => {
+            let report = claudit::ingest::reingest(&paths)?;
+            println!(
+                "replayed {} archived events ({} re-redacted, {} unprojected)",
+                report.replay.events, report.replay.resanitized, report.replay.unprojected_events
+            );
+            println!(
+                "ingested {} new events; read {} transcript lines ({} skipped)",
+                report.ingest.events,
+                report.ingest.transcript_lines,
+                report.ingest.skipped_transcript_lines
+            );
+            Ok(())
+        }
         Command::Install => install(&paths),
         Command::Uninstall => uninstall(&paths),
     }
@@ -149,8 +162,4 @@ fn catch_up(paths: &Paths) -> Result<()> {
             Err(err)
         }
     }
-}
-
-fn not_yet_implemented(command: &str) -> Result<()> {
-    bail!("`claudit {command}` is not yet implemented")
 }

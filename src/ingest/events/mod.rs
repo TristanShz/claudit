@@ -17,6 +17,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::clock;
+use crate::redact;
 use crate::spool::SpoolRecord;
 
 /// A hook event as archived: payload plus the fields every event carries.
@@ -29,12 +30,15 @@ pub struct RawEvent {
 }
 
 impl RawEvent {
+    /// The event of a spooled payload, sanitized (outputs dropped, secrets
+    /// redacted: see [`redact::sanitize_hook_payload`]) before it can be
+    /// archived or projected.
     pub fn from_spool(record: SpoolRecord) -> Result<Self> {
         Ok(Self {
             session_id: record.session_id()?.to_owned(),
             hook_event_name: record.hook_event_name()?.to_owned(),
             received_at: record.received_at,
-            payload: record.payload,
+            payload: redact::sanitize_hook_payload(record.payload),
         })
     }
 
