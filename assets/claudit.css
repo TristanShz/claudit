@@ -46,3 +46,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; gap: 24p
 .swatch-tool { background: var(--series-tool); }
 .swatch-waiting { background: var(--series-waiting); }
 .swatch-subagent { background: var(--series-subagent); }
+.pill { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); vertical-align: 1px; }
+.pill-user { border-color: var(--series-model); }
+.pill-model { border-color: var(--series-tool); }
+.pill-both { border-style: dashed; }

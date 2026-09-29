@@ -1,0 +1,35 @@
+<div class="row-2" id="skills-subagents-row">
+  <section class="card" id="skills-section">
+    <h2>Skills</h2>
+    {% if skills.is_empty() %}
+    <p class="empty">No skill used yet for this filter.</p>
+    {% else %}
+    <table class="ranking">
+      <thead><tr><th>Skill</th><th class="num">Uses</th><th class="num">Time</th><th class="num">Tokens</th></tr></thead>
+      <tbody>
+        {% for s in skills %}
+        <tr>
+          <td>{{ s.name }}{% if !s.pill.is_empty() %} <span class="pill pill-{{ s.pill_kind }}">{{ s.pill }}</span>{% endif %}</td>
+          <td class="num">{{ s.invocations }}</td><td class="num">{{ s.time }}</td><td class="num">{{ s.tokens }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+  <section class="card" id="subagents-section">
+    <h2>Subagents</h2>
+    {% if subagents.is_empty() %}
+    <p class="empty">No subagent run yet for this filter.</p>
+    {% else %}
+    <table class="ranking">
+      <thead><tr><th>Type</th><th class="num">Runs</th><th class="num">Time</th><th>Model</th><th class="num">Tokens</th></tr></thead>
+      <tbody>
+        {% for a in subagents %}
+        <tr><td>{{ a.agent_type }}</td><td class="num">{{ a.runs }}</td><td class="num">{{ a.time }}</td><td class="muted">{{ a.model }}</td><td class="num">{{ a.tokens }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+</div>

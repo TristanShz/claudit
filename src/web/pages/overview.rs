@@ -1,5 +1,6 @@
 //! The overview (home) page.
 
+mod skills_section;
 mod time_section;
 
 use std::sync::Arc;
@@ -12,12 +13,13 @@ use serde::Serialize;
 use crate::db;
 use crate::stats::consumption::{self, Consumption};
 use crate::stats::ingest_status::{self, IngestStatus};
-use crate::stats::time;
 use crate::stats::tools::{self, ToolStat};
+use crate::stats::{skills, subagents, time};
 use crate::web::AppState;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
+use skills_section::{SkillRow, SubagentRow};
 use time_section::TimeSection;
 
 #[derive(Template)]
@@ -29,6 +31,8 @@ struct OverviewPage {
     tools: Vec<ToolRow>,
     tools_chart_json: String,
     time: TimeSection,
+    skills: Vec<SkillRow>,
+    subagents: Vec<SubagentRow>,
 }
 
 /// The KPI row.
@@ -94,7 +98,7 @@ pub(in crate::web) async fn handler(
 ) -> Result<Html<String>, WebError> {
     let filter = filters.to_filter();
     let log_path = state.paths.log_file().display().to_string();
-    let (tools, consumption, status, time) =
+    let (tools, consumption, status, time, skills, subagents) =
         tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             let conn = db::open(&state.paths)?;
             Ok((
@@ -105,6 +109,8 @@ pub(in crate::web) async fn handler(
                     time::time_breakdown(&conn, &filter)?,
                     time::waiting_by_tool(&conn, &filter)?,
                 )?,
+                skills_section::skill_rows(skills::skill_ranking(&conn, &filter)?),
+                skills_section::subagent_rows(subagents::subagent_ranking(&conn, &filter)?),
             ))
         })
         .await??;
@@ -117,6 +123,8 @@ pub(in crate::web) async fn handler(
         filters,
         tools,
         time,
+        skills,
+        subagents,
     };
     Ok(Html(page.render()?))
 }

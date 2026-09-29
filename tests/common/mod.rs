@@ -94,6 +94,12 @@ impl TestEnv {
     /// Bash permission prompt, turn 2 is a typed `/code-review` that runs a
     /// subagent making one Read call.
     pub fn replay_session_a_hooks(&self) {
+        self.replay_session_a_hooks_with(|_, _| {});
+    }
+
+    /// [`Self::replay_session_a_hooks`], letting `edit` change each payload
+    /// (given its fixture name) before it is fed.
+    pub fn replay_session_a_hooks_with(&self, edit: impl Fn(&str, &mut Value)) {
         let ms = |ms: i64| t0() + Duration::milliseconds(ms);
         for (at, name) in [
             (-500, "session_start_startup.json"),
@@ -114,7 +120,8 @@ impl TestEnv {
             (380_300, "stop_after_subagent.json"),
             (1_800_000, "session_end.json"),
         ] {
-            self.hook_fixture_at(ms(at), name);
+            self.at(ms(at))
+                .hook_fixture_with(name, |payload| edit(name, payload));
         }
     }
 
@@ -198,6 +205,18 @@ impl TestEnv {
 
     pub fn waiting_by_tool(&self, filter: &Filter) -> Vec<stats::time::ToolWaiting> {
         stats::time::waiting_by_tool(&self.db(), filter).expect("waiting_by_tool")
+    }
+
+    pub fn skills(&self, filter: &Filter) -> Vec<stats::skills::SkillStat> {
+        stats::skills::skill_ranking(&self.db(), filter).expect("skill_ranking")
+    }
+
+    pub fn subagents(&self, filter: &Filter) -> Vec<stats::subagents::SubagentTypeStat> {
+        stats::subagents::subagent_ranking(&self.db(), filter).expect("subagent_ranking")
+    }
+
+    pub fn subagent_runs(&self, filter: &Filter) -> Vec<stats::subagents::SubagentRun> {
+        stats::subagents::subagent_runs(&self.db(), filter).expect("subagent_runs")
     }
 
     /// A connection to the archive, for calling any `claudit::stats` report.

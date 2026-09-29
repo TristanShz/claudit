@@ -20,6 +20,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use self::entry::{Entry, Kind, Line};
 use super::IngestReport;
+use super::events::subagent_runs::{self, RunUpdate};
 use super::offsets::{self, FileId};
 use crate::clock::{self, Clock, SystemClock};
 use crate::logfile;
@@ -160,9 +161,46 @@ fn ingest_file(
             ],
         )?;
     }
+    if let Some(agent_id) = &file.agent_id {
+        project_subagent_meta(&tx, &file.path, agent_id)?;
+    }
     offsets::set(&tx, &id, chunk.end_offset)?;
     tx.commit()?;
     Ok(report)
+}
+
+/// The `agent-<id>.meta.json` Claude Code writes next to a subagent
+/// transcript: its type and the Agent tool call that ran it (#9). Missing or
+/// unreadable metadata is not an error.
+fn project_subagent_meta(conn: &Connection, transcript: &Path, agent_id: &str) -> Result<()> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Meta {
+        agent_type: Option<String>,
+        tool_use_id: Option<String>,
+    }
+    // <project>/<session_id>/subagents/agent-<id>.jsonl
+    let session_id = transcript
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::file_name)
+        .map(|name| name.to_string_lossy().into_owned());
+    let meta = std::fs::read_to_string(transcript.with_extension("meta.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Meta>(&text).ok());
+    let (Some(session_id), Some(meta)) = (session_id, meta) else {
+        return Ok(());
+    };
+    subagent_runs::upsert(
+        conn,
+        &RunUpdate {
+            agent_id,
+            session_id: &session_id,
+            agent_type: meta.agent_type.as_deref(),
+            parent_tool_use_id: meta.tool_use_id.as_deref(),
+            ..RunUpdate::default()
+        },
+    )
 }
 
 /// Derives rows from one entry. Entries already seen (same `uuid`, e.g.
@@ -186,6 +224,23 @@ fn project(conn: &Connection, entry: &Entry, file_agent: Option<&str>) -> Result
 
     if main_thread {
         upsert_session(conn, entry, at_us)?;
+    } else if let Some(agent_id) = agent_id {
+        // The subagent's run spans its transcript entries (#9).
+        subagent_runs::upsert(
+            conn,
+            &RunUpdate {
+                agent_id,
+                session_id: &entry.session_id,
+                prompt_id: prompt_id.as_deref(),
+                agent_type: match &entry.kind {
+                    Kind::Assistant(message) => message.agent_type.as_deref(),
+                    _ => None,
+                },
+                started_at_us: Some(at_us),
+                stopped_at_us: Some(at_us),
+                ..RunUpdate::default()
+            },
+        )?;
     }
     match &entry.kind {
         Kind::User { prompt_text } => {

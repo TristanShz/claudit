@@ -6,13 +6,19 @@
 //! [`project`]. Each hook event type has its own handler module; to support a
 //! new event, add a module and one arm to [`project`].
 
+mod agent_tool;
 mod notification;
 mod permission_request;
 mod post_tool_use;
 mod pre_tool_use;
 mod session_end;
 mod session_start;
+mod skill_tool;
 mod stop;
+pub(crate) mod subagent_runs;
+mod subagent_start;
+mod subagent_stop;
+mod user_prompt_expansion;
 mod user_prompt_submit;
 
 use anyhow::Result;
@@ -84,7 +90,14 @@ pub fn archive(conn: &Connection, event: &RawEvent) -> Result<()> {
 /// same event (duplicate delivery, reingest) never double-counts.
 pub fn project(conn: &Connection, event: &RawEvent) -> Result<Projection> {
     match event.hook_event_name.as_str() {
-        "PostToolUse" => post_tool_use::project(conn, event),
+        "PostToolUse" => {
+            let projection = post_tool_use::project(conn, event)?;
+            if projection == Projection::Applied {
+                skill_tool::project(conn, event)?;
+                agent_tool::project(conn, event)?;
+            }
+            Ok(projection)
+        }
         "PreToolUse" => pre_tool_use::project(conn, event),
         "UserPromptSubmit" => user_prompt_submit::project(conn, event),
         "Stop" => stop::project(conn, event),
@@ -92,6 +105,9 @@ pub fn project(conn: &Connection, event: &RawEvent) -> Result<Projection> {
         "Notification" => notification::project(conn, event),
         "SessionStart" => session_start::project(conn, event),
         "SessionEnd" => session_end::project(conn, event),
+        "UserPromptExpansion" => user_prompt_expansion::project(conn, event),
+        "SubagentStart" => subagent_start::project(conn, event),
+        "SubagentStop" => subagent_stop::project(conn, event),
         _ => Ok(Projection::Ignored),
     }
 }
