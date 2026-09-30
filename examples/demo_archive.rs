@@ -22,6 +22,7 @@ fn main() {
     let env = common::TestEnv::new();
     env.populate_fixture_archive();
     env.replay_activities_session();
+    env.replay_commands_session();
     env.populate_trace_session();
     for name in [
         "post_tool_use_bash.json",

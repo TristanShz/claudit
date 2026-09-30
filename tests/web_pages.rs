@@ -67,7 +67,7 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
                 "filter-bar",
                 "kpis-section",
                 "time-section",
-                "waiting-section",
+                "commands-section",
                 "activities-section",
                 "tools-section",
                 "skills-section",
@@ -84,6 +84,11 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
         (
             "/tools",
             &["tools-section", "bash-section", "mcp-section"][..],
+        ),
+        ("/commands", &["commands-section"][..]),
+        (
+            "/commands?sort=p95&project=%2FUsers%2Falice%2Fcode%2Facme-api",
+            &["commands-section"][..],
         ),
         (
             "/activities",
@@ -107,6 +112,7 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
                 "timeline-data",
                 "turns-section",
                 "session-activities-section",
+                "session-commands-section",
                 "session-tools-section",
                 "session-skills-subagents-section",
             ][..],
@@ -169,7 +175,7 @@ async fn time_sections_render_on_an_archive_of_imported_sessions_only() {
             &[
                 "kpis-section",
                 "time-section",
-                "waiting-section",
+                "commands-section",
                 "activities-section",
             ][..],
         ),
@@ -177,10 +183,15 @@ async fn time_sections_render_on_an_archive_of_imported_sessions_only() {
             "/activities",
             &["activities-section", "activities-data"][..],
         ),
-        ("/tools", &["tools-section"][..]),
+        ("/tools", &["tools-section", "bash-section"][..]),
+        ("/commands", &["commands-section"][..]),
         (
             "/sessions/6e2d9b47-8c31-4a5f-b0d2-7f4e1a9c3b58",
-            &["session-header", "imported-section"][..],
+            &[
+                "session-header",
+                "imported-section",
+                "session-commands-section",
+            ][..],
         ),
     ] {
         let (status, body) = get(&env, uri).await;

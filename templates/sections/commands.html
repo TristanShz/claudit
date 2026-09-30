@@ -1,0 +1,20 @@
+<section class="card" id="commands-section" data-tabs>
+  <h2>Bash commands <a class="all-link" href="/commands{{ frame.query }}">All commands →</a></h2>
+  {% if most_used.rows.is_empty() %}
+  <p class="empty">No Bash call recorded for this filter.</p>
+  {% else %}
+  <div class="tabs" role="tablist" aria-label="Order">
+    <button type="button" class="chip" role="tab" data-tab="most-used" aria-selected="true" aria-pressed="true">Most used</button>
+    <button type="button" class="chip" role="tab" data-tab="slowest" aria-selected="false" aria-pressed="false">Slowest</button>
+    <span class="muted small tab-hint" data-panel="slowest" hidden>by total time</span>
+  </div>
+  <div role="tabpanel" data-panel="most-used">
+    {% let table = most_used %}
+    {% include "partials/command_table.html" %}
+  </div>
+  <div role="tabpanel" data-panel="slowest" hidden>
+    {% let table = slowest %}
+    {% include "partials/command_table.html" %}
+  </div>
+  {% endif %}
+</section>

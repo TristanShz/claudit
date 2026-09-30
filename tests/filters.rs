@@ -10,7 +10,7 @@
 //! - project and branch match the session's working directory and git
 //!   branch (a tool call's own `cwd` wins over its session's);
 //! - model matches API messages of that model, and everything happening in
-//!   a turn (or subagent thread) that used it: its tool calls, waits, skill
+//!   a turn (or subagent thread) that used it: its tool calls, skill
 //!   invocations, subagent runs; sessions and turns that used it;
 //! - the date range applies to each report's own event time (session start,
 //!   turn start, tool completion, API response, run start).
@@ -33,7 +33,8 @@ const HAIKU: &str = "claude-haiku-4-5-20251001";
 struct Digest {
     /// `tool_ranking`: (tool, calls).
     tools: Vec<(String, u64)>,
-    bash_commands: Vec<String>,
+    /// `command_ranking`: command keys, by runs.
+    commands: Vec<String>,
     mcp_servers: Vec<String>,
     /// `consumption`: sessions, turns, total tokens.
     consumption: (u64, u64, u64),
@@ -43,7 +44,6 @@ struct Digest {
     time_breakdown_turns: u64,
     /// `time_coverage`: recorded and imported sessions.
     time_coverage: (u64, u64),
-    waiting_by_tool: Vec<String>,
     skills: Vec<String>,
     subagents: Vec<String>,
     subagent_runs: Vec<String>,
@@ -80,7 +80,17 @@ fn digest(env: &TestEnv, filter: &Filter) -> Digest {
             .into_iter()
             .map(|r| (r.name, r.stats.calls))
             .collect(),
-        bash_commands: names(stats::tools::bash_command_ranking(&conn, filter).unwrap()),
+        commands: stats::commands::command_ranking(
+            &conn,
+            filter,
+            claudit::activities::ActivityRules::builtin(),
+            stats::commands::CommandSort::Calls,
+        )
+        .unwrap()
+        .commands
+        .into_iter()
+        .map(|c| c.command)
+        .collect(),
         mcp_servers: names(stats::tools::mcp_server_ranking(&conn, filter).unwrap()),
         consumption: (
             consumption.sessions,
@@ -102,11 +112,6 @@ fn digest(env: &TestEnv, filter: &Filter) -> Digest {
             let c = stats::time::time_coverage(&conn, filter).unwrap();
             (c.recorded_sessions, c.imported_sessions)
         },
-        waiting_by_tool: stats::time::waiting_by_tool(&conn, filter)
-            .unwrap()
-            .into_iter()
-            .map(|w| w.tool_name)
-            .collect(),
         skills: stats::skills::skill_ranking(&conn, filter)
             .unwrap()
             .into_iter()
@@ -202,7 +207,7 @@ fn login_session_only() -> Digest {
         // The Bash call comes from a hook; the Edit call only from the
         // transcript (no hook recorded it, as for a backfilled session).
         tools: vec![("Bash".to_owned(), 1), ("Edit".to_owned(), 1)],
-        bash_commands: strings(&["git"]),
+        commands: strings(&["git status"]),
         // Tokens: 5 + 150 + 3200 + 3000.
         consumption: (1, 1, 6355),
         session_list: strings(&[LOGIN]),
@@ -301,7 +306,6 @@ fn a_model_filter_keeps_what_that_model_did_in_every_report() {
             turn_times: strings(&[SESSION_A]),
             time_breakdown_turns: 1,
             time_coverage: (1, 0),
-            waiting_by_tool: strings(&["Read"]),
             subagents: strings(&["general-purpose"]),
             subagent_runs: strings(&["a1f3c5e7b9d2c4e6f"]),
             total_cost_tokens: 8606,

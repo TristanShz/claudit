@@ -83,6 +83,9 @@ Fixtures live in `tests/fixtures/`:
 - `hooks/activities/`: a synthetic hook-only session of test, build, git and
   edit calls for `tests/activities.rs` (replayed by
   `TestEnv::replay_activities_session`, outside the default fixture archive);
+- `hooks/commands/`: a synthetic hook-only session of vitest, git and build
+  calls in another project, for `tests/commands.rs`
+  (`TestEnv::replay_commands_session`);
 - `transcripts/cost/…`: transcripts for cost tests, kept out of `projects/`
   so the totals documented for `projects/` stay valid;
 - `transcripts/tool_calls/…`: a backfilled session for tool calls read from

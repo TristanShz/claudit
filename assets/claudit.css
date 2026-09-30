@@ -171,3 +171,17 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   .turn-row { grid-template-columns: 3em minmax(0, 1fr) 5.5em; }
   .turn-row > :nth-child(5), .turn-row > :nth-child(7) { display: none; }
 }
+/* Bash commands tables and the overview's tabs. */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.ranking.commands td.command { max-width: 0; width: 48%; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranking.commands td.command code { background: none; padding: 0; }
+.ranking.commands td.command .swatch { vertical-align: 0; }
+.ranking.commands th a.sort { color: inherit; text-decoration: none; }
+.ranking.commands th a.sort:hover { color: var(--accent); }
+.ranking.commands th a.sorted { color: var(--text); font-weight: 600; }
+@media (max-width: 640px) {
+  .ranking.commands .activity-name { display: none; }
+  .ranking.commands th, .ranking.commands td { padding: 6px 5px; }
+}
+/* Half-width overview block: the colour chip (and tooltip) names the activity. */
+#time-row .ranking.commands .activity-name { display: none; }

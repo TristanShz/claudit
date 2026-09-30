@@ -6,7 +6,7 @@
 //! the Claude projects dir, hook fixtures go in through the hook entry point,
 //! `TestEnv::ingest` loads both, and assertions are made on the typed
 //! reports: `stats::tools` rankings (calls and failures; durations only
-//! from hooks), `stats::time` (no time without hooks; waiting) and
+//! from hooks), `stats::time` (no time without hooks), `stats::commands` and
 //! `stats::subagents` (calls per run).
 
 mod common;
@@ -63,17 +63,17 @@ fn a_backfilled_session_yields_tool_calls_without_durations() {
             },
         ]
     );
+    let commands: Vec<(String, CallStats)> = env
+        .command_ranking(&Filter::default())
+        .commands
+        .into_iter()
+        .map(|c| (c.command, c.stats))
+        .collect();
     assert_eq!(
-        env.bash_command_ranking(&Filter::default()),
-        vec![
-            RankedCalls {
-                name: "cargo".into(),
-                stats: untimed(1, 1),
-            },
-            RankedCalls {
-                name: "git".into(),
-                stats: untimed(1, 0),
-            },
+        commands,
+        [
+            ("cargo test".to_owned(), untimed(1, 1)),
+            ("git status".to_owned(), untimed(1, 0)),
         ]
     );
 }
@@ -89,9 +89,8 @@ fn a_subagent_transcripts_calls_are_attributed_to_the_subagent() {
     assert_eq!(runs[0].agent_id, SUBAGENT);
     assert_eq!(runs[0].tool_calls, 1, "its Grep call");
 
-    // Its turn is not timed (no hooks), and nothing waited.
+    // Its turn is not timed (no hooks).
     assert!(env.turn_times(&Filter::default()).is_empty());
-    assert!(env.waiting_by_tool(&Filter::default()).is_empty());
 }
 
 /// The hooks' view of the fixture's `cargo test` call: announced at
@@ -134,13 +133,6 @@ fn assert_the_hook_timing_wins(env: &TestEnv) {
         }
     );
     assert_eq!(tools.iter().map(|t| t.stats.calls).sum::<u64>(), 5);
-    // Waiting 5.1 → 5.6 s, from the hooks.
-    let waiting = env.waiting_by_tool(&Filter::default());
-    assert_eq!(waiting.len(), 1, "{waiting:#?}");
-    assert_eq!(
-        (waiting[0].tool_name.as_str(), waiting[0].waiting),
-        ("Bash", Duration::milliseconds(500))
-    );
 }
 
 #[test]
@@ -154,17 +146,21 @@ fn a_result_appended_later_completes_its_call_on_the_next_ingest() {
     env.drop_transcript(&main, &format!("{}\n", lines[..4].join("\n")));
     env.ingest();
     let bash = |env: &TestEnv| {
-        env.bash_command_ranking(&Filter::default())
+        env.command_ranking(&Filter::default())
+            .commands
             .into_iter()
-            .map(|r| (r.name, r.stats.calls))
+            .map(|c| (c.command, c.stats.calls))
             .collect::<Vec<_>>()
     };
-    assert_eq!(bash(&env), [("git".to_owned(), 1)]);
+    assert_eq!(bash(&env), [("git status".to_owned(), 1)]);
 
     env.append_transcript(&main, &format!("{}\n", lines[4..].join("\n")));
     env.ingest();
 
-    assert_eq!(bash(&env), [("cargo".to_owned(), 1), ("git".to_owned(), 1)]);
+    assert_eq!(
+        bash(&env),
+        [("cargo test".to_owned(), 1), ("git status".to_owned(), 1)]
+    );
 }
 
 #[test]

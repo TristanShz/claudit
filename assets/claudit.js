@@ -435,6 +435,20 @@
     root.querySelectorAll("[data-trace]").forEach(initTrace);
   }
 
+  // Tabs (`[data-tabs]`): each `[data-tab]` button shows the elements of
+  // its `[data-panel]` and hides the others'. One delegated listener.
+  document.addEventListener("click", (event) => {
+    const tab = event.target.closest && event.target.closest("[data-tabs] [data-tab]");
+    if (!tab) return;
+    const box = tab.closest("[data-tabs]");
+    box.querySelectorAll("[data-tab]").forEach((t) => {
+      const on = t === tab;
+      t.setAttribute("aria-selected", String(on));
+      t.setAttribute("aria-pressed", String(on));
+    });
+    box.querySelectorAll("[data-panel]").forEach((p) => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
+  });
+
   // Refresh runs an ingest before reloading: show that it is working.
   document.addEventListener("submit", (event) => {
     const form = event.target;

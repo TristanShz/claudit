@@ -65,13 +65,13 @@ flowchart LR
 | `src/ingest/offsets.rs` | Byte offsets per file identity (path + inode); `read_complete_lines`. |
 | `src/ingest/spool.rs` | Spool files → `raw_events` + projection, one transaction per file. |
 | `src/ingest/events/` | `RawEvent`, `archive`, and `project`: one module per hook event, plus shared `tool_call` (every write to `tool_calls`, hooks and transcripts, and the timing precedence), `skill_tool`, `agent_tool`, `subagent_runs`. |
-| `src/ingest/bash_command.rs` | The leading command of a Bash call (`git`, `cargo`, …). |
 | `src/ingest/transcripts/` | Transcript files → `sessions`, `turns`, `api_messages`, `transcript_entries`, `subagent_runs`, `tool_calls`. `entry.rs` is the tolerant line parser. |
 | `src/ingest/purge.rs` | Spool purge. |
 | `src/ingest/reingest.rs` | Reset-and-replay, `DERIVED_TABLES`, `KEPT_TABLES`. |
 | `src/pricing.rs` | `PriceTable` (from `pricing/prices.toml`), `Usd` (exact picodollars), `Cost`. |
+| `src/shell.rs` | The one Bash command-line reader: simple commands, the leading command (`tool_calls.bash_command`), the command key (`pnpm exec vitest`). |
 | `src/activities.rs` | `ActivityRules` (from `activities/rules.toml`, plus the user's `activities.toml`): classifies a tool call into an activity and a detail. |
-| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `prompt` (labels of injected prompts), `sessions`, `session_detail`, `time`, `trace` (a session's turns and each turn's trace), `tools`, `skills`, `subagents`, `ingest_status`. |
+| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `prompt` (labels of injected prompts), `sessions`, `session_detail`, `time`, `trace` (a session's turns and each turn's trace), `tools`, `commands` (Bash command keys), `skills`, `subagents`, `ingest_status`. |
 | `src/web/` | axum router bound to `127.0.0.1`, one module per page under `pages/`, embedded assets (`assets.rs`), query-string filters (`filter_params.rs`), display helpers (`format.rs`). |
 | `templates/` | Askama templates: `base.html`, `pages/`, `sections/` (one per dashboard section), `partials/`. |
 | `assets/` | htmx, ECharts, `claudit.js` (chart renderers), `claudit.css`; compiled into the binary. |
@@ -161,7 +161,7 @@ comes first; `PostToolUse` overwrites them with its own.
 | `agent_id` | The subagent that made the call; `NULL` on the main thread. |
 | `tool_name` | E.g. `Bash`, `Read`, `mcp__github__create_issue`. |
 | `mcp_server` | The server part of an `mcp__<server>__<tool>` name. |
-| `bash_command` | Leading command of a Bash call. |
+| `bash_command` | Leading command of a Bash call (`shell::leading_command`). |
 | `tool_input` | Redacted input JSON. |
 | `cwd` | Working directory of the call. |
 | `pre_at_us`, `post_at_us` | Effective: `PreToolUse` and `PostToolUse(Failure)` receive times, or the `tool_use` and `tool_result` entry timestamps. |
@@ -174,7 +174,8 @@ comes first; `PostToolUse` overwrites them with its own.
 
 **`permission_requests`**: one row per `PermissionRequest`. PK
 (`session_id`, `at_us`, `tool_name`); also `prompt_id`, `agent_id`,
-`tool_input` (redacted JSON), `cwd`.
+`tool_input` (redacted JSON), `cwd`. No dashboard report reads it today (waiting
+time comes from `PreToolUse` → execution start); it stays for SQL queries.
 
 **`notifications`**: one row per `Notification`. PK (`session_id`, `at_us`,
 `notification_type`); also `prompt_id`, `message`, `cwd`.
@@ -343,7 +344,8 @@ catch-up (`claudit ingest`, `serve`'s start) therefore compares the
 `derivation_version` in `meta` with `ingest::DERIVATION_VERSION` under the
 lock: if it is older or missing and the archive is not empty, it runs the
 reset-and-replay above before its passes (version 2 added `subagent_events`
-and the text of injected meta prompts) (logged as `INFO` in
+and the text of injected meta prompts; version 3 changed the leading
+command of Bash calls) (logged as `INFO` in
 `logs/claudit.log`, reported as `IngestReport::rebuilt`), then stores the
 current version, so it happens once. A new archive just stores the version.
 `claudit reingest` stores it too. Bump the constant whenever ingest derives
@@ -421,10 +423,8 @@ Aggregates (`time_breakdown`) sum turns, and assign each turn to the UTC day
 it started. The same hook-only rule applies everywhere time appears: tool
 durations and percentiles (`stats::tools`, `CallStats::timed_calls` of
 `calls`), activity time (`stats::activities`), skills' attributed time (the
-turn's hook window), and subagent durations (see [Subagent runs](#subagent-runs)). `waiting_by_tool` is a different measure: per tool, the sum over
-calls (subagent calls included) of `max(0, post − duration − pre)`, not
-unioned, alongside the count of `PermissionRequest` events for that tool;
-only hook-timed calls can be measured.
+turn's hook window), Bash command durations (`stats::commands`), and
+subagent durations (see [Subagent runs](#subagent-runs)).
 
 ### Subagent runs
 
@@ -515,9 +515,34 @@ rules: the user's `$CLAUDIT_HOME/activities.toml` first, then the built-in
 command glob and optional regex (searched in each simple command of the
 line, see the README) all match gives the activity; otherwise it is
 `Other shell` (Bash) or `Other`. Each call also gets a **detail**: for Bash
-the command normalized to program + subcommand (`cargo test`,
-`pnpm exec vitest`, `python -m pytest`), for MCP the server, otherwise the
-tool name.
+its command key (below), for MCP the server, otherwise the tool name.
+
+### Bash command lines
+
+`src/shell.rs` is the only reader of command lines. It splits a line into
+simple commands (at `&&`, `||`, `;`, `|`, `&`, newlines and parentheses
+outside quotes; here-documents and comments skipped), strips assignments,
+shell keywords and wrappers (`sudo`, `env`, `timeout N`, …), and derives:
+
+- the **leading command** (stored in `tool_calls.bash_command`, matched by
+  rules' `commands`): the first simple command that is not a setup command
+  (`cd`, `export`, `set`, `source`, `echo`, `printf`, `sleep`, `true`, `[`,
+  …), or the condition of a loop the line opens with;
+- the **command key** of a simple command: the program, plus for known
+  multi-command programs its subcommand (options and the values of common
+  valued options skipped), a package manager runner's target
+  (`pnpm exec vitest`, `uv run pytest`) or a group's subcommand
+  (`docker compose up`); `python -m <module>`; `until <program>` for a loop
+  condition. Kept words start with a letter and contain no `/`, `.`, `=`,
+  quote, `$` or bracket, so paths, files and arguments never appear.
+
+A Bash call's key is that of its **most significant** simple command: the
+one the first matching activity rule's pattern matched (rules run tests,
+lint, build, git, … in order, so `cargo build && cargo test` is
+`cargo test`), else the leading one. `stats::commands` ranks calls by key
+(runs and failures of every call; total, median and p95 of the hook-timed
+ones; share of hook-timed Bash time), filtered or for one session, in any of
+five orders (`CommandSort`).
 
 Like cost, nothing classified is stored: `stats::activities` reads the
 filtered `tool_calls` rows and classifies them in Rust, classifying each

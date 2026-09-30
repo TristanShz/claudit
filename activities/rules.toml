@@ -11,13 +11,14 @@
 #   activity = "Tests"          # the activity it assigns (any name)
 #   tools    = ["Bash"]         # tool names; `*` and `?` are wildcards
 #                               # (`mcp__*`, `mcp__github__*`)
-#   commands = ["git", "gh"]    # optional: the call's leading command (as in
-#                               # the Tools page's Bash table: `cd x &&` and
-#                               # `VAR=1` prefixes skipped); wildcards allowed
+#   commands = ["git", "gh"]    # optional: the call's leading command (its
+#                               # first simple command that is not `cd`,
+#                               # `export`, `echo`, `sleep`, … with `VAR=1`
+#                               # prefixes skipped); wildcards allowed
 #   pattern  = '^cargo\s+test'  # optional: a regex searched in each simple
 #                               # command of the Bash command line (split at
 #                               # `&&`, `||`, `;`, `|`, `&` and newlines, with
-#                               # `VAR=value` prefixes, `sudo`/`env`/`time`/
+#                               # `VAR=value` prefixes, shell keywords, `sudo`/`env`/`time`/
 #                               # `timeout N`/`nohup` wrappers removed and the
 #                               # program reduced to its file name); anchor
 #                               # with `^` for "the command starts with"

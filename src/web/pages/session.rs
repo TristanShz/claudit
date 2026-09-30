@@ -1,6 +1,6 @@
 //! The session page (`/sessions/{id}`): header, KPIs, turn timeline, the
 //! list of every turn (each opening its trace, see [`super::turn_trace`]),
-//! the session's activities, tools, skills and subagents.
+//! the session's activities, Bash commands, tools, skills and subagents.
 
 use std::sync::Arc;
 
@@ -13,11 +13,13 @@ use serde::Serialize;
 use crate::db;
 use crate::pricing::PriceTable;
 use crate::stats::activities;
+use crate::stats::commands::{self, CommandSort};
 use crate::stats::session_detail::{self, SessionDetail};
 use crate::stats::skills::SkillTrigger;
 use crate::stats::time::{SegmentKind, TimeSplit, TurnTime};
 use crate::stats::trace::{self, TurnRow};
 use crate::web::AppState;
+use crate::web::commands_table::{CommandsTable, SortParam, sort_href};
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
@@ -45,6 +47,8 @@ struct SessionPage {
     /// Every turn, oldest first.
     turn_list: Vec<TurnListRow>,
     activities: Vec<ActivityRow>,
+    /// Its Bash commands, sortable.
+    commands: CommandsTable,
     tools: Vec<ToolRow>,
     skills: Vec<SkillUse>,
     subagents: Vec<RunRow>,
@@ -320,6 +324,7 @@ pub(in crate::web) async fn handler(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
     Query(filters): Query<FilterParams>,
+    Query(sort): Query<SortParam>,
 ) -> Result<Response, WebError> {
     let page = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SessionPage>> {
         let conn = db::open(&state.paths)?;
@@ -339,6 +344,10 @@ pub(in crate::web) async fn handler(
         )?;
         let breakdown = activities::session_activities(&conn, &detail.session_id, &frame.rules)?;
         let activities = rows::activity_rows(&breakdown);
+        let sort = sort.sort_or(CommandSort::Total);
+        let ranking = commands::session_commands(&conn, &detail.session_id, &frame.rules, sort)?;
+        let link = |name: &str| sort_href(&path, &frame.query, name, "#session-commands-section");
+        let commands = CommandsTable::new(&ranking, usize::MAX, Some(sort), Some(&link));
         Ok(Some(SessionPage {
             frame,
             header: header(&detail),
@@ -351,6 +360,7 @@ pub(in crate::web) async fn handler(
             turn_count: detail.turn_count,
             turn_list: turn_list(&turn_rows),
             activities,
+            commands,
             skills: detail
                 .skills
                 .iter()

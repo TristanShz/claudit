@@ -8,6 +8,7 @@
 //! every page shows around its content: the filter bar and the banners.
 
 mod assets;
+mod commands_table;
 mod coverage;
 mod error;
 mod filter_params;
@@ -53,6 +54,7 @@ fn app(state: AppState) -> Router {
     Router::new()
         .route("/", get(pages::overview::handler))
         .route("/tools", get(pages::tools::handler))
+        .route("/commands", get(pages::commands::handler))
         .route("/activities", get(pages::activities::handler))
         .route("/skills", get(pages::skills::handler))
         .route("/subagents", get(pages::subagents::handler))

@@ -95,6 +95,15 @@
   </ul>
   {% endif %}
 </section>
+<section class="card" id="session-commands-section">
+  <h2>Bash commands <span class="muted small">subagents' runs included · click a column to sort</span></h2>
+  {% if commands.rows.is_empty() %}
+  <p class="empty">No Bash call recorded for this session.</p>
+  {% else %}
+  {% let table = commands %}
+  {% include "partials/command_table.html" %}
+  {% endif %}
+</section>
 <div class="row-2">
   <section class="card" id="session-tools-section">
     <h2>Tools</h2>

@@ -17,22 +17,5 @@
     <script type="application/json" id="time-data">{{ time.chart_json|safe }}</script>
     {% endif %}
   </section>
-  <section class="card" id="waiting-section">
-    <h2>Waiting on you, by tool</h2>
-    {% if time_note.empty %}
-    {% include "partials/time_empty.html" %}
-    {% else if time.waiting.is_empty() %}
-    <p class="empty">No tool call waited on you for this filter.</p>
-    {% else %}
-    {% include "partials/time_note.html" %}
-    <table class="ranking">
-      <thead><tr><th>Tool</th><th class="num">Waiting</th><th class="num">Calls</th><th class="num">Prompts</th></tr></thead>
-      <tbody>
-        {% for row in time.waiting %}
-        <tr><td>{{ row.name }}</td><td class="num">{{ row.waiting }}</td><td class="num">{{ row.calls_waited }}</td><td class="num">{{ row.permission_requests }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-  </section>
+  {% include "sections/commands.html" %}
 </div>

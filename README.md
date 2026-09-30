@@ -8,7 +8,11 @@ SQLite archive and serves a local dashboard to analyze them after the fact:
 - **where the time goes** in each turn: the model working, tools running,
   Claude waiting on you (permission prompts), subagents;
 - **tools**: call counts, median and p95 durations, failure rates, broken
-  down by Bash command (`git`, `cargo`, …) and by MCP server;
+  down by MCP server;
+- **Bash commands**: which commands Claude runs most and which take the most
+  time (`pnpm exec vitest`, `cargo test`, `git status`), with runs, total
+  time, median, p95 and failures, per project, branch, model, date range and
+  session (see [Bash commands](#bash-commands));
 - **activities**: what the tools spend their time on (running tests,
   building, linting, git, installing dependencies, searching, reading and
   editing files, the web, subagents, MCP, …), with time, calls, failure
@@ -230,8 +234,8 @@ A rule has:
 | --- | --- | --- |
 | `activity` | yes | The activity name it assigns (a new one or a built-in one). |
 | `tools` | yes | Tool names; `*` and `?` are wildcards (`mcp__*`). |
-| `commands` | no | The Bash call's leading command, as on the Tools page (`cd web && pnpm test` → `pnpm`); wildcards allowed. |
-| `pattern` | no | A regular expression ([Rust syntax](https://docs.rs/regex/latest/regex/#syntax)) searched in each simple command of the Bash command line: the line is split at `&&`, `\|\|`, `;`, `\|`, `&` and newlines (outside quotes, here-documents skipped), `VAR=value` prefixes and `sudo`/`env`/`time`/`timeout N`/`nohup` wrappers are removed, and the program is reduced to its file name (`./gradlew test` → `gradlew test`). Start it with `^` to mean "a command that starts with". |
+| `commands` | no | The Bash call's leading command: the program of its first simple command that is not a setup command (`cd`, `export`, `set`, `source`, `echo`, `printf`, `sleep`, `true`, `[`, …), e.g. `cd web && pnpm test` → `pnpm`; for a line that opens with an `until`/`while` loop, the loop's condition. Wildcards allowed. |
+| `pattern` | no | A regular expression ([Rust syntax](https://docs.rs/regex/latest/regex/#syntax)) searched in each simple command of the Bash command line: the line is split at `&&`, `\|\|`, `;`, `\|`, `&` and newlines (outside quotes, here-documents skipped), `VAR=value` prefixes, shell keywords (`if`, `then`, `do`, `while`, `until`, …) and `sudo`/`env`/`time`/`timeout N`/`nohup` wrappers are removed, and the program is reduced to its file name (`./gradlew test` → `gradlew test`). Start it with `^` to mean "a command that starts with". |
 
 A rule matches when the tool matches and, when given, the leading command
 and the pattern match too. If the file cannot be read or is invalid, it is
@@ -241,6 +245,33 @@ ignored (the built-in rules still apply), the error is logged to
 Time is each call's own execution time (`duration_ms`), summed: parallel
 calls add up, and calls made inside a subagent count in their activity as
 well as in the Agent call's *Subagents* time.
+
+## Bash commands
+
+The Commands page (`/commands`), the overview's "Bash commands" block and
+the session page's panel group Bash calls by **command key**: the program
+and its meaningful subcommand, without paths, files or other arguments.
+
+| Command line | Key |
+| --- | --- |
+| `pnpm exec vitest run src/cart.test.ts` | `pnpm exec vitest` |
+| `pnpm --filter @acme/api test` | `pnpm test` |
+| `npx vitest run`, `npm run build` | `npx vitest`, `npm run build` |
+| `cargo test --workspace`, `cargo +nightly fmt` | `cargo test`, `cargo fmt` |
+| `git -C repo status --short`, `gh pr view 42` | `git status`, `gh pr` |
+| `docker compose -f dev.yml up -d` | `docker compose up` |
+| `python -m pytest -q`, `uv run pytest` | `python -m pytest`, `uv run pytest` |
+| `vitest run src/a.test.ts`, `./scripts/deploy.sh prod` | `vitest`, `deploy.sh` |
+| `cd web && pnpm test 2>&1 \| tail -30` | `pnpm test` |
+| `until grep -q done run.log; do sleep 5; done` | `until grep` |
+
+A line of several commands counts once, under its most significant command:
+the one its activity rule matched (rules are tried in order: tests, lint,
+build, git, …, so `cargo build && cargo test` is `cargo test`), else its
+leading command (see `commands` under [Activities](#activities)). Each
+command carries its activity. Runs imported from transcripts are counted
+but not timed; the tables say "Time measured on N of M runs" when some
+were.
 
 ## Querying the archive with SQL
 

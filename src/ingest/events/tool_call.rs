@@ -19,7 +19,6 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{Projection, RawEvent};
-use crate::ingest::bash_command;
 
 /// The fields of a completed tool call (success or failure).
 #[derive(Debug, Deserialize)]
@@ -216,7 +215,7 @@ fn derived_columns<'a>(
         "Bash" => tool_input
             .and_then(|input| input.get("command"))
             .and_then(Value::as_str)
-            .and_then(bash_command::leading_command),
+            .and_then(crate::shell::leading_command),
         _ => None,
     };
     (bash_command, mcp_server(tool_name))

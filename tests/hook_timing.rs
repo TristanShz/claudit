@@ -110,15 +110,16 @@ fn tool_durations_come_from_hooks_while_counts_include_imported_calls() {
         ]
     );
     let bash: Vec<(String, CallStats)> = env
-        .bash_command_ranking(&Filter::default())
+        .command_ranking(&Filter::default())
+        .commands
         .into_iter()
-        .map(|r| (r.name, r.stats))
+        .map(|c| (c.command, c.stats))
         .collect();
     assert_eq!(
         bash,
         [
-            ("cargo".to_owned(), calls(2, 1, &[4_000])),
-            ("git".to_owned(), calls(1, 0, &[])),
+            ("cargo test".to_owned(), calls(2, 1, &[4_000])),
+            ("git status".to_owned(), calls(1, 0, &[])),
         ]
     );
 }

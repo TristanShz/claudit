@@ -4,7 +4,6 @@
 //! are redacted and outputs dropped before anything is stored
 //! (`crate::redact`).
 
-mod bash_command;
 pub mod events;
 mod lock;
 pub mod offsets;
@@ -40,7 +39,10 @@ pub const META_DERIVATION_VERSION: &str = "derivation_version";
 /// - 1: tool calls read from transcripts (migration 0011).
 /// - 2: subagent start / stop events (migration 0017), and the text of
 ///   system-injected prompts (a subagent's hand-back) from transcripts.
-pub const DERIVATION_VERSION: u32 = 2;
+/// - 3: the leading command of a Bash call skips setup commands (`export`,
+///   `echo`, `sleep`, …) and shell keywords (`for`, `until`, `if`), see
+///   [`crate::shell`].
+pub const DERIVATION_VERSION: u32 = 3;
 
 /// Upper bound on passes per catch-up, so input that never stops growing
 /// cannot keep one ingest process alive forever (the next `Stop` resumes).

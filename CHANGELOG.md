@@ -10,6 +10,46 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **Bash commands ranking**: which commands Claude runs most and which take
+  the most time, by command key: the program and its meaningful subcommand
+  (`pnpm exec vitest`, `cargo test`, `git status`, `docker compose up`,
+  `uv run pytest`), never a path, a file or another argument. A line of
+  several commands counts once, under its most significant command (the one
+  its activity rule matched, else the first that is not `cd`, `export`,
+  `echo`, `sleep` or the like); a polling loop is named after its condition
+  (`until grep`). Each command shows its activity, runs, total time, median,
+  p95 and failures; durations come from hook-timed runs only, with a
+  "time measured on N of M runs" note when some runs were imported
+  (`stats::commands::{command_ranking, session_commands}`).
+  - Overview: a "Bash commands" block with **Most used** and **Slowest** (by
+    total time) tabs, next to "Where the time goes".
+  - `/commands` (new, in the top navigation): every command, filtered by the
+    filter bar, sortable by runs, total time, median, p95 or failures.
+  - Session page: a "Bash commands" panel for the session, sortable too.
+  - `/tools`: its Bash table now shows the top 10 command keys and links to
+    `/commands`.
+
+### Changed
+
+- The leading command of a Bash call (`tool_calls.bash_command`, and the
+  `commands` key of activity rules) skips setup commands (`cd`, `export`,
+  `set`, `source`, `echo`, `printf`, `sleep`, `true`, `[`, …) and shell
+  keywords (`for`, `if`, `do`, `until`, …): `export PATH=… && npx tsc` leads
+  with `npx`. The first ingest after the upgrade rebuilds the archive once
+  (`DERIVATION_VERSION` 3; about 2–3 minutes on a large archive).
+- Bash details on the Activities page are finer: options and their values
+  are skipped before a subcommand (`pnpm --filter web test` → `pnpm test`,
+  `git -C repo log` → `git log`, `cargo +nightly fmt` → `cargo fmt`).
+
+### Removed
+
+- The overview's "Waiting on you, by tool" block, and the
+  `stats::time::waiting_by_tool` and `stats::tools::bash_command_ranking`
+  reports (replaced by `stats::commands`). Waiting time is still part of
+  "Where the time goes", the session KPIs and the turn traces.
+
 ## [0.3.0] - 2026-09-30
 
 ### Added
