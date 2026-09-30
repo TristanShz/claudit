@@ -513,7 +513,7 @@ and the others' shares are then shares of the known part).
 rules: the user's `$CLAUDIT_HOME/activities.toml` first, then the built-in
 `activities/rules.toml`. The first rule whose tool glob, optional leading
 command glob and optional regex (searched in each simple command of the
-line, see the README) all match gives the activity; otherwise it is
+line, see docs/GUIDE.md) all match gives the activity; otherwise it is
 `Other shell` (Bash) or `Other`. Each call also gets a **detail**: for Bash
 its command key (below), for MCP the server, otherwise the tool name.
 
