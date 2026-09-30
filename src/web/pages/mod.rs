@@ -8,3 +8,4 @@ pub(super) mod sessions;
 pub(super) mod skills;
 pub(super) mod subagents;
 pub(super) mod tools;
+pub(super) mod turn_trace;

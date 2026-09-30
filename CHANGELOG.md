@@ -10,6 +10,23 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **Turn list and turn traces on the session page**: every turn of the
+  session is listed, timed or not, with its start, prompt, duration
+  (hook-timed only), tool calls and failures, subagents, test runs, tokens
+  and cost (`stats::trace::session_turns`). Opening a turn loads its trace
+  (`/sessions/{id}/turns/{prompt_id}`, `stats::trace::turn_trace`): one
+  swimlane for the main thread and one per subagent run (its active
+  spans), each tool call drawn from execution start to end with its
+  permission wait before it, failed calls outlined, calls known only from
+  transcripts as ticks at their launch; a tooltip with the call's redacted
+  input summary (command, file, pattern, URL, MCP server and tool, skill,
+  subagent), timings, status and error; activity filter chips (Tests,
+  Build, …, Failed); zoom; and the chronological call log below.
+- Per-turn cost (`stats::cost::session_cost_by_turn`); subagent runs carry
+  their Agent call's `description` and their active spans.
+
 ### Fixed
 
 - **Subagent run time** comes from `SubagentStart` → `SubagentStop`: each

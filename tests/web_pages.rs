@@ -57,6 +57,7 @@ async fn the_overview_shows_the_empty_state_on_an_empty_archive() {
 async fn every_page_renders_its_sections_on_the_fixture_archive() {
     let env = TestEnv::new();
     env.populate_fixture_archive();
+    env.populate_trace_session();
     env.ingest();
 
     for (uri, ids) in [
@@ -104,6 +105,7 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
                 "session-kpis",
                 "timeline-section",
                 "timeline-data",
+                "turns-section",
                 "session-activities-section",
                 "session-tools-section",
                 "session-skills-subagents-section",
@@ -115,15 +117,43 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
             &[
                 "session-header",
                 "imported-section",
+                "turns-section",
                 "session-activities-section",
                 "session-tools-section",
             ][..],
+        ),
+        (
+            "/sessions/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e",
+            &[
+                "session-header",
+                "session-kpis",
+                "timeline-section",
+                "turns-section",
+            ][..],
+        ),
+        // A turn's trace, loaded when the turn is opened.
+        (
+            "/sessions/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e/turns/d0000000-0000-4000-8000-000000000101",
+            &[
+                "trace-d0000000-0000-4000-8000-000000000101",
+                "trace-data-d0000000-0000-4000-8000-000000000101",
+            ][..],
+        ),
+        (
+            "/sessions/2b7e4f10-3c5d-4e6f-8a9b-1c2d3e4f5a6b/turns/a1b2c3d4-0003-4000-8000-000000000003",
+            &["trace-a1b2c3d4-0003-4000-8000-000000000003"][..],
         ),
     ] {
         let (status, body) = get(&env, uri).await;
         assert_sections(uri, status, &body, ids);
     }
     let (status, _) = get(&env, "/sessions/00000000-0000-0000-0000-000000000000").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = get(
+        &env,
+        "/sessions/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e/turns/no-such-turn",
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 

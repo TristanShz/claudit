@@ -41,7 +41,9 @@ flowchart LR
    [Ingest pipeline](#ingest-pipeline)).
 4. **Serve.** `claudit serve` answers every page from the typed stats API
    (`src/stats/`) and renders Askama templates. It never polls: data
-   refreshes when the page is reloaded.
+   refreshes when the page is reloaded. A session page loads each turn's
+   trace (`/sessions/{id}/turns/{prompt_id}`, an HTML fragment) with htmx
+   only when the turn is opened.
 
 ## Module map
 
@@ -69,7 +71,7 @@ flowchart LR
 | `src/ingest/reingest.rs` | Reset-and-replay, `DERIVED_TABLES`, `KEPT_TABLES`. |
 | `src/pricing.rs` | `PriceTable` (from `pricing/prices.toml`), `Usd` (exact picodollars), `Cost`. |
 | `src/activities.rs` | `ActivityRules` (from `activities/rules.toml`, plus the user's `activities.toml`): classifies a tool call into an activity and a detail. |
-| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `prompt` (labels of injected prompts), `sessions`, `session_detail`, `time`, `tools`, `skills`, `subagents`, `ingest_status`. |
+| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `prompt` (labels of injected prompts), `sessions`, `session_detail`, `time`, `trace` (a session's turns and each turn's trace), `tools`, `skills`, `subagents`, `ingest_status`. |
 | `src/web/` | axum router bound to `127.0.0.1`, one module per page under `pages/`, embedded assets (`assets.rs`), query-string filters (`filter_params.rs`), display helpers (`format.rs`). |
 | `templates/` | Askama templates: `base.html`, `pages/`, `sections/` (one per dashboard section), `partials/`. |
 | `assets/` | htmx, ECharts, `claudit.js` (chart renderers), `claudit.css`; compiled into the binary. |
@@ -384,13 +386,14 @@ notes. For each **main-thread turn** with both a `UserPromptSubmit` and a
   as long as the call), or a blocking `TaskOutput` (`block` not false)
   whose `task_id` is a subagent run of the session. Every other call's
   execution is a **tool** interval, including waits that cannot be told
-  apart reliably (a `sleep` loop, `Monitor`). Calls made *inside* a subagent carry an `agent_id` and are
+  apart reliably (a `sleep` loop, `Monitor`): the turn trace shows what
+  they were. Calls made *inside* a subagent carry an `agent_id` and are
   never main-thread time.
 - A **background** subagent (the Agent call returns in milliseconds with
   `status: "async_launched"`) is not main-thread time: it runs alongside
   whatever the main thread does (often after the turn has ended), so only
   its Agent call's own milliseconds count. Its real duration is its run
-  time (below).
+  time (below), and the trace draws it as its own lane.
 - Every interval is clipped to `[start, end]`. The turn is cut at every
   interval boundary, and each elementary slice is assigned to the
   highest-priority kind covering it: **subagent > tool > waiting > model**.
@@ -432,6 +435,33 @@ or a start with no stop (still running, interrupted) gives no span. Without
 any span, Claude Code's `totalDurationMs` from the Agent tool response
 (foreground runs); else no duration. Never the Agent call's hook duration
 (a background launch returns in milliseconds) nor a transcript span.
+
+### Turns and traces
+
+`stats::trace::session_turns` lists **every** turn of a session, oldest
+first, timed or not: its start (`UserPromptSubmit`, else its first
+transcript entry, an instant), its labelled prompt, its duration (hook-timed
+only, else none), completed calls and failures (subagents' included),
+subagent runs launched, test runs (calls of the built-in `Tests` activity)
+and their failures, tokens and cost (`cost::session_cost_by_turn`).
+
+`stats::trace::turn_trace` is one turn's trace:
+
+- **lanes**: the main thread (span: submit → stop), then every subagent run
+  launched in the turn or making calls in it (spans: all its active spans,
+  so a background run outliving the turn is shown whole), then runs of
+  other turns active during it (spans clipped to the trace);
+- **calls**: every `tool_calls` row of the turn (subagents' included), by
+  launch instant (`PreToolUse`, else the transcript's `tool_use` entry).
+  A hook-timed call has an execution `[post − duration_ms, post]` and a
+  permission wait `PreToolUse` → execution start; a call only a transcript
+  saw has only its launch instant (drawn as a tick). Each carries its
+  activity, status, hook error and a **summary** of its stored (redacted)
+  input: the Bash command, the file path, the Grep/Glob pattern and path,
+  the URL or query, `server · tool` for MCP, the skill and its arguments,
+  `subagent_type · description` for Agent, the task id; never an output.
+- the trace spans the turn and everything in it, so a lane can end long
+  after `Stop`.
 
 ### Injected prompts
 
@@ -529,5 +559,6 @@ Tests exercise external behavior through two seams only (see
 
 There are no tests on the HTTP layer or templates: they are thin adapters
 over the stats API. The one exception is `tests/web_pages.rs`, a render smoke
-check (every page answers 200 and contains its section ids; no assertion on
-content), because issues #11 and #12 require each page to render.
+check (every page, and a turn trace fragment, answers 200 and contains its
+section ids; no assertion on content), because issues #11 and #12 require
+each page to render.

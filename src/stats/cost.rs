@@ -66,6 +66,27 @@ pub fn session_cost(conn: &Connection, session_id: &str, prices: &PriceTable) ->
     }))
 }
 
+/// Tokens and cost of each turn of one session (its subagents' responses
+/// included: they carry the parent turn's `prompt_id`), keyed by prompt id,
+/// unfiltered.
+pub fn session_cost_by_turn(
+    conn: &Connection,
+    session_id: &str,
+    prices: &PriceTable,
+) -> Result<Vec<CostLine>> {
+    let scope = FilterSql {
+        clause: "m.session_id = ?".to_owned(),
+        params: vec![Value::Text(session_id.to_owned())],
+    };
+    grouped(
+        conn,
+        &scope,
+        prices,
+        "m.prompt_id",
+        "m.prompt_id IS NOT NULL",
+    )
+}
+
 /// Cost per session (subagents included), most expensive first.
 pub fn cost_by_session(
     conn: &Connection,

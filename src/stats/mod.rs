@@ -39,5 +39,6 @@ pub mod skills;
 pub mod subagents;
 pub mod time;
 pub mod tools;
+pub mod trace;
 
 pub use filter::{Filter, FilterColumns, FilterSql};

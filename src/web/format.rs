@@ -48,6 +48,14 @@ pub(super) fn local_time(at: chrono::DateTime<chrono::Utc>) -> String {
         .to_string()
 }
 
+/// An instant in the machine's time zone, to the second:
+/// `2026-03-02 09:00:05`.
+pub(super) fn local_time_s(at: chrono::DateTime<chrono::Utc>) -> String {
+    at.with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
 /// A cost: `$12.34`, `$12.34+` when some models are unpriced, `unknown`
 /// when none is (never `$0` for unpriced tokens).
 pub(super) fn cost(cost: &crate::pricing::Cost) -> String {
