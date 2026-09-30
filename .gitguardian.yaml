@@ -1,0 +1,8 @@
+# GitGuardian / ggshield configuration.
+# The redaction tests use deliberately fake secrets; this one was committed
+# in clear text before being split, so its match is ignored explicitly.
+version: 2
+secret:
+  ignored_matches:
+    - name: fake JWT in tests/redaction.rs (redaction fixture, not a real token)
+      match: 626ba5271820ad924f3cd14e890b2dbc71684e244c912b0cfb1d30d7a9c2b134

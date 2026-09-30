@@ -25,7 +25,14 @@ const SECRETS: &[&str] = &[
     "ghs_16C7e42F292c6912E7710c838347Ae178B4c",
     "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEF",
     "AKIAIOSFODNN7EXAMPLE",
-    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGljZSJ9.c2lnbmF0dXJl",
+    // A fake JWT, split so secret scanners don't flag the fixture itself.
+    concat!(
+        "eyJhbGciOiJIUzI1NiJ9",
+        ".",
+        "eyJzdWIiOiJhbGljZSJ9",
+        ".",
+        "c2lnbmF0dXJl"
+    ),
     "hunter2-db-password",
     "s3cr3t-webhook-value",
     "tok-internal-9f8e7d",
