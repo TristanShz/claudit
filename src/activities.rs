@@ -19,7 +19,8 @@
 //! [`crate::shell`].
 
 use std::borrow::Cow;
-use std::sync::{Mutex, OnceLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result, bail};
 use regex::Regex;
@@ -35,6 +36,9 @@ const BUILTIN: &str = include_str!("../activities/rules.toml");
 pub const OTHER_SHELL: &str = "Other shell";
 /// The activity of any other call no rule matches.
 pub const OTHER: &str = "Other";
+/// The built-in activity of Bash lines that only wait: polling loops and
+/// bare `sleep`s.
+pub const WAITING: &str = "Waiting & polling";
 
 /// A tool call, as far as classification is concerned.
 #[derive(Debug, Clone, Copy, Default)]
@@ -55,12 +59,23 @@ pub struct Classification<'r, 'c> {
     pub detail: Cow<'c, str>,
 }
 
-/// An ordered list of rules. Cheap to clone (compiled regexes are shared).
+/// An ordered list of rules. Cheap to clone (compiled regexes are shared),
+/// optionally with a classification cache shared by its clones (see
+/// [`ActivityRules::with_classification_cache`]).
 #[derive(Debug, Clone)]
 pub struct ActivityRules {
     /// `version` of the built-in file, plus the user file's when merged.
     pub version: String,
     rules: Vec<Rule>,
+    cache: Option<Arc<Mutex<HashMap<String, Cached>>>>,
+}
+
+/// A cached classification: the index of the rule that matched (`None`
+/// for [`OTHER_SHELL`] / [`OTHER`]) and the detail.
+#[derive(Debug, Clone)]
+struct Cached {
+    rule: Option<usize>,
+    detail: String,
 }
 
 #[derive(Debug, Clone)]
@@ -139,7 +154,21 @@ impl ActivityRules {
         Ok(Self {
             version: file.version,
             rules,
+            cache: None,
         })
+    }
+
+    /// These rules with a fresh classification cache: each distinct call
+    /// is classified once, however many reports classify it, until this
+    /// value and its clones are dropped. The dashboard makes one per page
+    /// (`web::frame`), so the activities, commands and trace reports of a
+    /// page share their work; the cache is never kept across pages, so it
+    /// cannot grow with the archive.
+    pub fn with_classification_cache(&self) -> ActivityRules {
+        ActivityRules {
+            cache: Some(Arc::default()),
+            ..self.clone()
+        }
     }
 
     /// `overrides` first, then these rules.
@@ -151,6 +180,7 @@ impl ActivityRules {
                 format!("{} + user rules {}", self.version, overrides.version)
             },
             rules: overrides.rules.iter().chain(&self.rules).cloned().collect(),
+            cache: None,
         }
     }
 
@@ -217,6 +247,38 @@ impl ActivityRules {
 
     /// The activity of `call` and its detail.
     pub fn classify<'r, 'c>(&'r self, call: &ToolCall<'c>) -> Classification<'r, 'c> {
+        let Some(cache) = &self.cache else {
+            return self.classify_uncached(call);
+        };
+        let key = format!(
+            "{}\0{}\0{}\0{}",
+            call.tool_name,
+            call.mcp_server.unwrap_or("\u{1}"),
+            call.bash_command.unwrap_or("\u{1}"),
+            call.command.unwrap_or("\u{1}"),
+        );
+        let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let cached = cache.entry(key).or_insert_with(|| {
+            let c = self.classify_uncached(call);
+            Cached {
+                rule: self
+                    .rules
+                    .iter()
+                    .position(|r| std::ptr::eq(r.activity.as_str(), c.activity)),
+                detail: c.detail.into_owned(),
+            }
+        });
+        Classification {
+            activity: match cached.rule {
+                Some(i) => &self.rules[i].activity,
+                None if call.tool_name == "Bash" => OTHER_SHELL,
+                None => OTHER,
+            },
+            detail: Cow::Owned(cached.detail.clone()),
+        }
+    }
+
+    fn classify_uncached<'r, 'c>(&'r self, call: &ToolCall<'c>) -> Classification<'r, 'c> {
         let is_bash = call.tool_name == "Bash";
         let commands = match (is_bash, call.command) {
             (true, Some(command)) => shell::simple_commands(command),
@@ -225,7 +287,7 @@ impl ActivityRules {
         let leading: Option<Cow<'c, str>> = call
             .bash_command
             .map(Cow::Borrowed)
-            .or_else(|| shell::leading(&commands).map(|c| Cow::Owned(c.program().to_owned())));
+            .or_else(|| shell::leading(&commands).map(|c| Cow::Owned(c.leading_name().to_owned())));
 
         for rule in &self.rules {
             if !rule.tools.iter().any(|g| g.matches(call.tool_name)) {
@@ -473,7 +535,31 @@ mod tests {
             ("curl -s https://example.com", "Web", "curl"),
             // Fallback
             ("echo hello", "Other shell", "echo"),
-            ("sleep 5", "Other shell", "sleep"),
+            // Waiting & polling: what the whole line does is wait.
+            ("sleep 5", "Waiting & polling", "sleep"),
+            (
+                "echo 'waiting for CI'; sleep 60",
+                "Waiting & polling",
+                "sleep",
+            ),
+            (
+                "until grep -q 'Test Files' /tmp/run.log; do sleep 10; done",
+                "Waiting & polling",
+                "until grep",
+            ),
+            (
+                "while pgrep -f vitest >/dev/null; do sleep 2; done",
+                "Waiting & polling",
+                "while pgrep",
+            ),
+            (
+                "until [ -f /tmp/done ]; do sleep 5; done",
+                "Waiting & polling",
+                "until test",
+            ),
+            // A sleep before real work does not make the line a wait.
+            ("sleep 30 && gh run view 123", "Git & GitHub", "gh run"),
+            ("sleep 2; cargo test", "Tests", "cargo test"),
         ];
         let mut wrong = Vec::new();
         for (command, activity, detail) in table {
@@ -598,6 +684,35 @@ mod tests {
             "wrong command keys:\n{}",
             wrong.join("\n")
         );
+    }
+
+    #[test]
+    fn a_classification_cache_gives_the_same_answers() {
+        let plain = ActivityRules::builtin();
+        let cached = plain.with_classification_cache();
+        let calls = [
+            ("Bash", None, None, Some("cd web && pnpm test 2>&1 | tail")),
+            ("Bash", None, Some("git"), Some("git status")),
+            (
+                "Bash",
+                None,
+                None,
+                Some("until grep -q ok log; do sleep 1; done"),
+            ),
+            ("Read", None, None, None),
+            ("mcp__github__get_issue", Some("github"), None, None),
+        ];
+        for _ in 0..2 {
+            for (tool_name, mcp_server, bash_command, command) in calls {
+                let call = ToolCall {
+                    tool_name,
+                    mcp_server,
+                    bash_command,
+                    command,
+                };
+                assert_eq!(cached.classify(&call), plain.classify(&call), "{call:?}");
+            }
+        }
     }
 
     #[test]

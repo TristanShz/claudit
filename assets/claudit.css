@@ -106,14 +106,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   --act-0: #2a78d6; --act-1: #eb6834; --act-2: #8b5cf6; --act-3: #1baf7a;
   --act-4: #a16207; --act-5: #db2777; --act-6: #0891b2; --act-7: #64748b;
   --act-8: #65a30d; --act-9: #4f46e5; --act-10: #eda100; --act-11: #e11d48;
-  --act-12: #0ea5e9; --act-13: #a78bfa; --act-14: #9ca3af; --act-15: #cbd5e1;
+  --act-12: #0ea5e9; --act-13: #a78bfa; --act-14: #a8a29e; --act-15: #9ca3af; --act-16: #cbd5e1;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --act-0: #3987e5; --act-1: #d95926; --act-2: #9f7aea; --act-3: #199e70;
     --act-4: #b7791f; --act-5: #ec4899; --act-6: #22a6c4; --act-7: #8391a7;
     --act-8: #7cb518; --act-9: #7069f0; --act-10: #c98500; --act-11: #f43f5e;
-    --act-12: #38bdf8; --act-13: #b69cf7; --act-14: #6b7280; --act-15: #4b5563;
+    --act-12: #38bdf8; --act-13: #b69cf7; --act-14: #78716c; --act-15: #6b7280; --act-16: #4b5563;
   }
 }
 .hbar { width: 100%; min-width: 80px; height: 12px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--border) 60%, transparent); }
@@ -185,3 +185,4 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 }
 /* Half-width overview block: the colour chip (and tooltip) names the activity. */
 #time-row .ranking.commands .activity-name { display: none; }
+.hidden-note a { color: var(--accent); }

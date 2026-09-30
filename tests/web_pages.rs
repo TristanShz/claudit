@@ -87,6 +87,10 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
         ),
         ("/commands", &["commands-section"][..]),
         (
+            "/commands?polling=show&sort=median",
+            &["commands-section"][..],
+        ),
+        (
             "/commands?sort=p95&project=%2FUsers%2Falice%2Fcode%2Facme-api",
             &["commands-section"][..],
         ),

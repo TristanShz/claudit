@@ -74,7 +74,36 @@ pub struct CommandRanking {
     pub total_duration_ms: u64,
 }
 
+/// Commands left out of a ranking by [`CommandRanking::hide_activity`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct HiddenCommands {
+    /// Command keys removed.
+    pub commands: u64,
+    /// Their runs.
+    pub calls: u64,
+    /// Their hook-timed time.
+    pub total_duration_ms: u64,
+}
+
 impl CommandRanking {
+    /// Removes the commands of `activity` (the dashboard hides
+    /// [`crate::activities::WAITING`] from its "slowest" views) and says
+    /// what was removed. The report's totals and shares still cover every
+    /// command.
+    pub fn hide_activity(&mut self, activity: &str) -> HiddenCommands {
+        let mut hidden = HiddenCommands::default();
+        self.commands.retain(|c| {
+            let keep = c.activity != activity;
+            if !keep {
+                hidden.commands += 1;
+                hidden.calls += c.stats.calls;
+                hidden.total_duration_ms += c.stats.total_duration_ms;
+            }
+            keep
+        });
+        hidden
+    }
+
     /// Reorders the commands.
     pub fn sort(&mut self, by: CommandSort) {
         // `None` (no timed run) sorts below every duration.

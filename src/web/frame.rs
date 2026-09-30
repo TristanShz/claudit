@@ -30,7 +30,8 @@ pub(super) struct Frame {
     pub warning: Option<IngestWarning>,
     /// Anything was ever recorded (else the empty state is shown).
     pub has_data: bool,
-    /// The activity rules: the user's file over the built-in rules.
+    /// The activity rules: the user's file over the built-in rules, with a
+    /// classification cache for this page.
     pub rules: ActivityRules,
     /// Why `$CLAUDIT_HOME/activities.toml` was ignored, if it was.
     pub rules_problem: Option<String>,
@@ -70,7 +71,8 @@ impl Frame {
                 log_path: state.paths.log_file().display().to_string(),
             }),
             has_data: status.has_data,
-            rules: loaded.rules,
+            // One classification per distinct call for the whole page.
+            rules: loaded.rules.with_classification_cache(),
             rules_problem: loaded.problem,
         })
     }

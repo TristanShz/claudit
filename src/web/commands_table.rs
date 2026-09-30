@@ -5,13 +5,16 @@ use serde::Deserialize;
 
 use super::format;
 use super::rows::activity_color;
-use crate::stats::commands::{CommandRanking, CommandSort};
+use crate::stats::commands::{CommandRanking, CommandSort, HiddenCommands};
 
-/// `?sort=` of the pages with a sortable commands table.
+/// `?sort=` (and `/commands`' `?polling=show`) of the pages with a
+/// sortable commands table.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub(super) struct SortParam {
     pub sort: String,
+    /// `show` to include the Waiting & polling commands.
+    pub polling: String,
 }
 
 /// The sorts a table offers, with their query value and column label.
@@ -66,6 +69,12 @@ pub(super) struct CommandsTable {
     /// `Time measured on N of M runs recorded with hooks.`, empty when every
     /// run was timed.
     pub coverage: String,
+    /// What was left out, e.g. `2 polling loops hidden (7 min 00 s)`; empty
+    /// when nothing was.
+    pub hidden: String,
+    /// A link that shows or hides them (empty: none), and its label.
+    pub toggle_href: String,
+    pub toggle_label: &'static str,
 }
 
 impl CommandsTable {
@@ -113,7 +122,39 @@ impl CommandsTable {
                 })
                 .collect(),
             coverage: coverage(ranking),
+            hidden: String::new(),
+            toggle_href: String::new(),
+            toggle_label: "",
         }
+    }
+
+    /// Notes the Waiting & polling commands `hidden` from the table, with a
+    /// link showing them.
+    pub fn with_hidden(mut self, hidden: HiddenCommands, show_href: String) -> Self {
+        if hidden.commands > 0 {
+            self.hidden = format!(
+                "{} waiting and polling command{} hidden ({} run{}{}): time spent waiting on something else.",
+                hidden.commands,
+                if hidden.commands == 1 { "" } else { "s" },
+                format::count(hidden.calls),
+                if hidden.calls == 1 { "" } else { "s" },
+                if hidden.total_duration_ms > 0 {
+                    format!(", {}", format::duration_ms(hidden.total_duration_ms))
+                } else {
+                    String::new()
+                },
+            );
+            self.toggle_href = show_href;
+            self.toggle_label = "Show them";
+        }
+        self
+    }
+
+    /// A link hiding the Waiting & polling commands again.
+    pub fn with_hide_link(mut self, hide_href: String) -> Self {
+        self.toggle_href = hide_href;
+        self.toggle_label = "Hide waiting and polling";
+        self
     }
 }
 
@@ -129,9 +170,14 @@ pub(super) fn coverage(ranking: &CommandRanking) -> String {
     )
 }
 
-/// `path` with the filter `query` (`""` or `?…`) and `sort=<name>`, then
-/// `anchor` (`""` or `#…`).
-pub(super) fn sort_href(path: &str, query: &str, name: &str, anchor: &str) -> String {
-    let separator = if query.is_empty() { '?' } else { '&' };
-    format!("{path}{query}{separator}sort={name}{anchor}")
+/// `path` with the filter `query` (`""` or `?…`) and `params` (trusted
+/// names and values), then `anchor` (`""` or `#…`).
+pub(super) fn page_href(path: &str, query: &str, params: &[(&str, &str)], anchor: &str) -> String {
+    let mut href = format!("{path}{query}");
+    for (name, value) in params {
+        href.push(if href.contains('?') { '&' } else { '?' });
+        href.push_str(&format!("{name}={value}"));
+    }
+    href.push_str(anchor);
+    href
 }

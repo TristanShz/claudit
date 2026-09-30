@@ -11,6 +11,7 @@ use askama::Template;
 use axum::extract::{Query, State};
 use axum::response::Html;
 
+use crate::activities::WAITING;
 use crate::db;
 use crate::pricing::{Cost, PriceTable};
 use crate::stats::commands::{self, CommandSort};
@@ -19,7 +20,7 @@ use crate::stats::time::TimeBreakdown;
 use crate::stats::tools::RankedCalls;
 use crate::stats::{activities, cost, models, sessions, skills, subagents, time, tools};
 use crate::web::AppState;
-use crate::web::commands_table::CommandsTable;
+use crate::web::commands_table::{CommandsTable, page_href};
 use crate::web::coverage::TimeNote;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
@@ -157,7 +158,18 @@ pub(in crate::web) async fn handler(
             commands::command_ranking(&conn, &filter, &frame.rules, CommandSort::Calls)?;
         let most_used = CommandsTable::new(&ranking, TOP, None, None);
         ranking.sort(CommandSort::Total);
-        let slowest = CommandsTable::new(&ranking, TOP, None, None);
+        // Waiting & polling would top "Slowest": time spent waiting on
+        // background work, not work.
+        let hidden = ranking.hide_activity(WAITING);
+        let slowest = CommandsTable::new(&ranking, TOP, None, None).with_hidden(
+            hidden,
+            page_href(
+                "/commands",
+                &frame.query,
+                &[("sort", "total"), ("polling", "show")],
+                "",
+            ),
+        );
 
         let costs: HashMap<String, Cost> = cost::cost_by_session(&conn, &filter, prices)?
             .into_iter()

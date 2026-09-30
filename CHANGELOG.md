@@ -30,15 +30,28 @@ migrates the archive automatically.
   - Session page: a "Bash commands" panel for the session, sortable too.
   - `/tools`: its Bash table now shows the top 10 command keys and links to
     `/commands`.
+- **Waiting & polling** activity (built-in, tried first): Bash lines whose
+  point is to wait, i.e. a line that opens with an `until` / `while` loop
+  (keyed `until grep`, `while pgrep`, `until test`) or that only sleeps
+  (`sleep 60`, `echo …; sleep 60`; a `sleep` before real work, as in
+  `sleep 30 && gh run view`, does not count). Their time is spent waiting on
+  something else (background tests, CI), so they are left out of the
+  overview's "Slowest" tab and of `/commands` by default, with a note
+  ("2 waiting and polling commands hidden (…)") and a link to show them
+  (`/commands?polling=show`); they still count everywhere else.
 
 ### Changed
 
 - The leading command of a Bash call (`tool_calls.bash_command`, and the
   `commands` key of activity rules) skips setup commands (`cd`, `export`,
   `set`, `source`, `echo`, `printf`, `sleep`, `true`, `[`, …) and shell
-  keywords (`for`, `if`, `do`, `until`, …): `export PATH=… && npx tsc` leads
-  with `npx`. The first ingest after the upgrade rebuilds the archive once
+  keywords (`for`, `if`, `do`, …): `export PATH=… && npx tsc` leads with
+  `npx`; a line that opens with an `until` / `while` loop leads with
+  `until` / `while`. The first ingest after the upgrade rebuilds the archive once
   (`DERIVATION_VERSION` 3; about 2–3 minutes on a large archive).
+- A page classifies each distinct tool call once, however many of its
+  reports need it (a per-page classification cache,
+  `ActivityRules::with_classification_cache`).
 - Bash details on the Activities page are finer: options and their values
   are skipped before a subcommand (`pnpm --filter web test` → `pnpm test`,
   `git -C repo log` → `git log`, `cargo +nightly fmt` → `cargo fmt`).

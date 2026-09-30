@@ -527,7 +527,9 @@ shell keywords and wrappers (`sudo`, `env`, `timeout N`, …), and derives:
 - the **leading command** (stored in `tool_calls.bash_command`, matched by
   rules' `commands`): the first simple command that is not a setup command
   (`cd`, `export`, `set`, `source`, `echo`, `printf`, `sleep`, `true`, `[`,
-  …), or the condition of a loop the line opens with;
+  …), else its `sleep`, else its first; `until` / `while` for a line that
+  opens with such a loop (the built-in *Waiting & polling* rule matches
+  `until`, `while` and `sleep`, before every other rule);
 - the **command key** of a simple command: the program, plus for known
   multi-command programs its subcommand (options and the values of common
   valued options skipped), a package manager runner's target
@@ -542,7 +544,15 @@ lint, build, git, … in order, so `cargo build && cargo test` is
 `cargo test`), else the leading one. `stats::commands` ranks calls by key
 (runs and failures of every call; total, median and p95 of the hook-timed
 ones; share of hook-timed Bash time), filtered or for one session, in any of
-five orders (`CommandSort`).
+five orders (`CommandSort`). `CommandRanking::hide_activity` removes one
+activity's commands and reports what it removed: the dashboard hides
+*Waiting & polling* from its "slowest" views unless asked.
+
+`ActivityRules::with_classification_cache` gives the rules a cache shared
+by their clones: each distinct call (tool, server, leading command, command
+line) is classified once. `web::frame` makes one per page, so the
+activities, commands and trace reports of a page share their work, and
+nothing is cached across pages.
 
 Like cost, nothing classified is stored: `stats::activities` reads the
 filtered `tool_calls` rows and classifies them in Rust, classifying each

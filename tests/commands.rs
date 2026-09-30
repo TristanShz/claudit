@@ -364,3 +364,66 @@ fn ingesting_again_changes_nothing() {
 
     assert_eq!(env.command_ranking(&Filter::default()), before);
 }
+
+/// Two polling calls in web-app on 2026-03-06, while tests ran in the
+/// background: an `until grep` loop (5 min) and a bare `sleep 120` (2 min).
+fn with_polling(env: &TestEnv) {
+    for (id, command, ms) in [
+        (
+            "toolu_01Polling000000001",
+            "until grep -q 'Test Files' /tmp/vitest.log; do sleep 5; done",
+            300_000,
+        ),
+        ("toolu_01Polling000000002", "sleep 120", 120_000),
+    ] {
+        env.at(Utc.with_ymd_and_hms(2026, 3, 6, 15, 0, 0).unwrap())
+            .hook_fixture_with("post_tool_use_bash.json", |p| {
+                p["session_id"] = serde_json::json!(COMMANDS_SESSION);
+                p["cwd"] = serde_json::json!("/Users/alice/code/web-app");
+                p["tool_use_id"] = serde_json::json!(id);
+                p["tool_input"]["command"] = serde_json::json!(command);
+                p["duration_ms"] = serde_json::json!(ms);
+            });
+    }
+    env.ingest();
+}
+
+#[test]
+fn polling_loops_are_their_own_activity_and_can_be_hidden() {
+    let env = archive();
+    with_polling(&env);
+
+    let mut r = ranking(&env, &Filter::default(), CommandSort::Total);
+
+    // Counted like any command, under their own activity.
+    assert_eq!(keys(&r)[..3], ["until grep", "pnpm exec vitest", "sleep"]);
+    for key in ["until grep", "sleep"] {
+        let command = r.commands.iter().find(|c| c.command == key).unwrap();
+        assert_eq!(command.activity, claudit::activities::WAITING, "{key}");
+    }
+    assert_eq!(r.total_duration_ms, BASH_TIME_MS + 420_000);
+
+    let hidden = r.hide_activity(claudit::activities::WAITING);
+
+    assert_eq!(
+        (hidden.commands, hidden.calls, hidden.total_duration_ms),
+        (2, 2, 420_000)
+    );
+    assert_eq!(keys(&r)[0], "pnpm exec vitest");
+    assert_eq!(r.commands.len(), 12);
+    let activities = claudit::stats::activities::activity_breakdown(
+        &env.db(),
+        &Filter::default(),
+        ActivityRules::builtin(),
+    )
+    .unwrap();
+    let waiting = activities
+        .activities
+        .iter()
+        .find(|a| a.activity == claudit::activities::WAITING)
+        .expect("a Waiting & polling activity");
+    assert_eq!(
+        (waiting.stats.calls, waiting.stats.total_duration_ms),
+        (2, 420_000)
+    );
+}

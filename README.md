@@ -195,7 +195,8 @@ and logged; the dashboard shows a banner when there are any.
 Every tool call is assigned an **activity** by an ordered list of rules: the
 first rule that matches wins, and a call no rule matches is *Other shell*
 (Bash) or *Other*. The built-in rules
-([`activities/rules.toml`](activities/rules.toml)) cover tests (`cargo
+([`activities/rules.toml`](activities/rules.toml)) cover waiting and
+polling (`until`/`while` loops, lines that only sleep), tests (`cargo
 test`, `pnpm test`, `pytest`, `go test`, `npx vitest`, …), build and
 typecheck, lint and format, git and GitHub, dependencies, running scripts,
 searching, reading and editing files, the web, subagents, skills, MCP (by
@@ -234,7 +235,7 @@ A rule has:
 | --- | --- | --- |
 | `activity` | yes | The activity name it assigns (a new one or a built-in one). |
 | `tools` | yes | Tool names; `*` and `?` are wildcards (`mcp__*`). |
-| `commands` | no | The Bash call's leading command: the program of its first simple command that is not a setup command (`cd`, `export`, `set`, `source`, `echo`, `printf`, `sleep`, `true`, `[`, …), e.g. `cd web && pnpm test` → `pnpm`; for a line that opens with an `until`/`while` loop, the loop's condition. Wildcards allowed. |
+| `commands` | no | The Bash call's leading command: the program of its first simple command that is not a setup command (`cd`, `export`, `set`, `source`, `echo`, `printf`, `sleep`, `true`, `[`, …), e.g. `cd web && pnpm test` → `pnpm`; `until` / `while` for a line that opens with such a loop, and `sleep` for a line that only sleeps. Wildcards allowed. |
 | `pattern` | no | A regular expression ([Rust syntax](https://docs.rs/regex/latest/regex/#syntax)) searched in each simple command of the Bash command line: the line is split at `&&`, `\|\|`, `;`, `\|`, `&` and newlines (outside quotes, here-documents skipped), `VAR=value` prefixes, shell keywords (`if`, `then`, `do`, `while`, `until`, …) and `sudo`/`env`/`time`/`timeout N`/`nohup` wrappers are removed, and the program is reduced to its file name (`./gradlew test` → `gradlew test`). Start it with `^` to mean "a command that starts with". |
 
 A rule matches when the tool matches and, when given, the leading command
@@ -263,7 +264,8 @@ and its meaningful subcommand, without paths, files or other arguments.
 | `python -m pytest -q`, `uv run pytest` | `python -m pytest`, `uv run pytest` |
 | `vitest run src/a.test.ts`, `./scripts/deploy.sh prod` | `vitest`, `deploy.sh` |
 | `cd web && pnpm test 2>&1 \| tail -30` | `pnpm test` |
-| `until grep -q done run.log; do sleep 5; done` | `until grep` |
+| `until grep -q done run.log; do sleep 5; done` | `until grep` (Waiting & polling) |
+| `sleep 60`; `sleep 30 && gh run view 12` | `sleep` (Waiting & polling); `gh run` |
 
 A line of several commands counts once, under its most significant command:
 the one its activity rule matched (rules are tried in order: tests, lint,
@@ -272,6 +274,12 @@ leading command (see `commands` under [Activities](#activities)). Each
 command carries its activity. Runs imported from transcripts are counted
 but not timed; the tables say "Time measured on N of M runs" when some
 were.
+
+Commands of the built-in **Waiting & polling** activity (polling loops and
+lines that only sleep) wait on something else, such as tests running in the
+background, so the overview's "Slowest" tab and the Commands page leave them
+out by default and say how many were hidden; "Show them" includes them
+(`/commands?polling=show`).
 
 ## Querying the archive with SQL
 

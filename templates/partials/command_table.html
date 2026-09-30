@@ -16,3 +16,4 @@
 </table>
 </div>
 {% if !table.coverage.is_empty() %}<p class="muted small time-note">{{ table.coverage }}</p>{% endif %}
+{% if !table.hidden.is_empty() || !table.toggle_href.is_empty() %}<p class="muted small time-note hidden-note">{{ table.hidden }}{% if !table.toggle_href.is_empty() %} <a href="{{ table.toggle_href }}">{{ table.toggle_label }}</a>{% endif %}</p>{% endif %}

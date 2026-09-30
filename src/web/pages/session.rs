@@ -19,7 +19,7 @@ use crate::stats::skills::SkillTrigger;
 use crate::stats::time::{SegmentKind, TimeSplit, TurnTime};
 use crate::stats::trace::{self, TurnRow};
 use crate::web::AppState;
-use crate::web::commands_table::{CommandsTable, SortParam, sort_href};
+use crate::web::commands_table::{CommandsTable, SortParam, page_href};
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
@@ -346,7 +346,14 @@ pub(in crate::web) async fn handler(
         let activities = rows::activity_rows(&breakdown);
         let sort = sort.sort_or(CommandSort::Total);
         let ranking = commands::session_commands(&conn, &detail.session_id, &frame.rules, sort)?;
-        let link = |name: &str| sort_href(&path, &frame.query, name, "#session-commands-section");
+        let link = |name: &str| {
+            page_href(
+                &path,
+                &frame.query,
+                &[("sort", name)],
+                "#session-commands-section",
+            )
+        };
         let commands = CommandsTable::new(&ranking, usize::MAX, Some(sort), Some(&link));
         Ok(Some(SessionPage {
             frame,

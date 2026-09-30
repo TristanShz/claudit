@@ -24,11 +24,12 @@
 //! `popd`, `export`, `set`, `unset`, `source` / `.`, `echo`, `printf`,
 //! `sleep`, `true`, `false`, `:`, `[` / `[[` / `test`) only prepare or
 //! label what follows, so `cd web && pnpm build` leads with `pnpm`; a line
-//! of setup commands only leads with its first one that is not a condition
-//! (`echo a; sleep 5` leads with `sleep`), else its first. A line that
-//! opens with a polling loop (`until grep -q done log; do sleep 5; done`)
-//! leads with the loop's condition, and its command key names the loop
-//! (`until grep`): its time is spent waiting.
+//! of setup commands only leads with its `sleep` if it has one
+//! (`echo a; sleep 5` waits), else its first one that is not a condition,
+//! else its first. A line that opens with a polling loop
+//! (`until grep -q done log; do sleep 5; done`) leads with the loop's
+//! keyword (`until`, `while`), and its command key names the loop and its
+//! condition (`until grep`): its time is spent waiting.
 
 /// Programs that only run another command, and their options taking a
 /// value.
@@ -82,6 +83,12 @@ impl SimpleCommand {
         &self.words[0]
     }
 
+    /// What it counts as when a line leads with it: the loop keyword for
+    /// the condition of an `until` / `while` loop, else its program.
+    pub fn leading_name(&self) -> &str {
+        self.loop_keyword.unwrap_or(self.program())
+    }
+
     /// Whether it only prepares or labels what follows (`cd`, `export`, …).
     pub fn is_setup(&self) -> bool {
         SETUP_COMMANDS.contains(&self.program())
@@ -90,18 +97,20 @@ impl SimpleCommand {
 
 /// The leading command of `command_line` (see the module docs).
 pub fn leading_command(command_line: &str) -> Option<String> {
-    leading(&simple_commands(command_line)).map(|c| c.program().to_owned())
+    leading(&simple_commands(command_line)).map(|c| c.leading_name().to_owned())
 }
 
 /// The simple command a line leads with: the condition of the loop the line
 /// opens with (`until grep -q done log; do sleep 5; done` polls with
-/// `grep`), else the first that is not a setup command, else the first
-/// that is not a condition (`[ -f x ]`, `true`), else the first.
+/// `grep`), else the first that is not a setup command, else its first
+/// `sleep` (`echo waiting; sleep 60` waits), else the first that is not a
+/// condition (`[ -f x ]`, `true`), else the first.
 pub fn leading(commands: &[SimpleCommand]) -> Option<&SimpleCommand> {
     commands
         .first()
         .filter(|c| c.loop_keyword.is_some())
         .or_else(|| commands.iter().find(|c| !c.is_setup()))
+        .or_else(|| commands.iter().find(|c| c.program() == "sleep"))
         .or_else(|| commands.iter().find(|c| !CONDITIONS.contains(&c.program())))
         .or_else(|| commands.first())
 }
