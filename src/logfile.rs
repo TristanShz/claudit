@@ -15,8 +15,18 @@ use crate::secure_fs;
 /// Logging itself never fails loudly: if the log is unwritable, the error is
 /// dropped, since there is nowhere left to report it.
 pub fn error(paths: &Paths, component: &str, message: impl std::fmt::Display) {
+    write(paths, "ERROR", component, message);
+}
+
+/// Appends one line `<timestamp> INFO [<component>] <message>`: a notable
+/// event that is not a failure (e.g. a one-time rebuild after an upgrade).
+pub fn info(paths: &Paths, component: &str, message: impl std::fmt::Display) {
+    write(paths, "INFO", component, message);
+}
+
+fn write(paths: &Paths, level: &str, component: &str, message: impl std::fmt::Display) {
     let line = format!(
-        "{} ERROR [{component}] {}\n",
+        "{} {level} [{component}] {}\n",
         Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
         // Keep one entry per line even for multi-line error chains; error
         // messages can quote payload fragments, so they are redacted too.

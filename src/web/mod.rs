@@ -8,13 +8,13 @@
 //! every page shows around its content: the filter bar and the banners.
 
 mod assets;
+mod coverage;
 mod error;
 mod filter_params;
 mod format;
 mod frame;
 mod pages;
 mod refresh;
-mod coverage;
 mod rows;
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -99,8 +99,14 @@ pub async fn serve(paths: Paths, port: u16) -> Result<()> {
 fn run_catch_up(paths: &Paths) -> Result<String> {
     match ingest::catch_up(paths, &SystemClock) {
         Ok(IngestOutcome::Ran(report)) => Ok(format!(
-            "caught up: {} events, {} transcript lines",
-            report.events, report.transcript_lines
+            "caught up: {}{} events, {} transcript lines",
+            if report.rebuilt {
+                "rebuilt the archive once after the upgrade, "
+            } else {
+                ""
+            },
+            report.events,
+            report.transcript_lines
         )),
         Ok(IngestOutcome::AlreadyRunning) => {
             Ok("another ingest is running; it will pick up pending input".to_owned())

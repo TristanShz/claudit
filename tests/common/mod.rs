@@ -281,16 +281,17 @@ impl TestEnv {
     // ---- ingest & stats ---------------------------------------------------
 
     /// Runs the locked catch-up ingest (what `claudit ingest` and
-    /// `claudit serve` run) and requires it to have taken the lock.
+    /// `claudit serve` run), requires it to have taken the lock, and returns
+    /// its report.
     ///
     /// Retries briefly on `AlreadyRunning`: while another test thread forks
     /// a process, the child briefly shares every open descriptor of this
     /// process, including a just-released ingest lock.
-    pub fn ingest(&self) {
+    pub fn ingest(&self) -> claudit::ingest::IngestReport {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         loop {
             match self.try_ingest() {
-                claudit::ingest::IngestOutcome::Ran(_) => return,
+                claudit::ingest::IngestOutcome::Ran(report) => return report,
                 claudit::ingest::IngestOutcome::AlreadyRunning => {
                     assert!(
                         std::time::Instant::now() < deadline,

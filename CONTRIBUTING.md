@@ -51,8 +51,9 @@ offsets or internal helpers, so the storage schema can change freely. If a
 behavior can't be observed through a stats report, the report is probably
 missing. The only sanctioned exceptions are properties that no report can
 express: "no secret string survives anywhere in the database"
-(`tests/redaction.rs` dumps every text cell) and file permissions
-(`tests/permissions.rs`).
+(`tests/redaction.rs` dumps every text cell), file permissions
+(`tests/permissions.rs`), and the setup of "an archive an older claudit
+derived" (`tests/derivation_upgrade.rs`), whose assertions stay on reports.
 
 There are no tests on the HTTP layer or the templates: handlers only call
 the stats API and render. One explicit exception: `tests/web_pages.rs` is a

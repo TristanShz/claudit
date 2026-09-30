@@ -49,6 +49,23 @@ catches up on pending ingestion first, and stops on Ctrl-C.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full data flow and data model.
 
+### Imported sessions vs sessions recorded with hooks
+
+Sessions from before `claudit install` are **imported** from their
+transcripts. They count everywhere consumption is reported: sessions, turns,
+tokens, cost, models, skills' tokens, subagents' tokens, tool calls,
+failures, Bash commands, MCP servers and activity call counts.
+
+**Time is measured only on sessions recorded with the hooks.** A
+transcript's timestamps include permission prompts, idle time and background
+work (a turn left waiting for an hour reads as an hour of "model" time), so
+imported sessions contribute no time at all: no "Where the time goes", no
+waiting, no active time, no tool durations or percentiles, no activity time,
+no subagent durations. The dashboard tags them `imported`, shows `–` for
+their durations, and each time section says how many sessions it covers
+("Time measured on N sessions recorded with hooks since …; X imported
+sessions not included").
+
 ## What is captured, and what never is
 
 **Stored** (after redaction, see below):
@@ -138,7 +155,7 @@ added and keeps your archive in `~/.claudit`.
 | `claudit uninstall` | Removes them and restores `cleanupPeriodDays`. |
 | `claudit serve [--port N]` | Catches up on pending ingestion, then serves the dashboard on `127.0.0.1:N` (default 8421) until Ctrl-C. |
 | `claudit ingest` | Loads new spooled events and transcripts into the archive. Runs automatically after each turn; safe to run by hand at any time (it is incremental, deduplicated and exits at once if another ingest is running). |
-| `claudit reingest` | Rebuilds every derived table from the archived hook events plus the transcripts still on disk, re-applying the current redaction patterns. Use it after an upgrade that changes the schema, the parser or the patterns. |
+| `claudit reingest` | Rebuilds every derived table from the archived hook events plus the transcripts still on disk, re-applying the current redaction patterns. After an upgrade that derives more from the archive (e.g. tool calls from transcripts), the next ingest runs it once by itself; run it by hand after an upgrade that changes the parser or the patterns. |
 | `claudit hook` | Records one hook payload from stdin. Run by Claude Code, not by hand. |
 
 ### Environment variables
@@ -233,10 +250,10 @@ in `_us`); `datetime(x / 1000000, 'unixepoch')` makes them readable. The
 tables are described in [ARCHITECTURE.md](ARCHITECTURE.md#data-model).
 
 ```sql
--- Most used tools, with failures and total execution time.
+-- Most used tools, with failures and total execution time (hook-timed).
 SELECT tool_name, COUNT(*) AS calls,
        SUM(success = 0) AS failures,
-       ROUND(SUM(duration_ms) / 1000.0, 1) AS total_s
+       ROUND(SUM(hook_duration_ms) / 1000.0, 1) AS total_s
 FROM tool_calls
 GROUP BY tool_name ORDER BY calls DESC LIMIT 15;
 
@@ -263,7 +280,7 @@ SELECT skill, trigger, COUNT(*) AS invocations
 FROM skill_invocations
 GROUP BY skill, trigger ORDER BY invocations DESC;
 
--- Your last ten prompts.
+-- Your last ten prompts (hook time, else transcript time).
 SELECT datetime(COALESCE(submit_at_us, start_at_us) / 1000000, 'unixepoch') AS at,
        substr(prompt_text, 1, 80) AS prompt
 FROM turns ORDER BY COALESCE(submit_at_us, start_at_us) DESC LIMIT 10;
@@ -287,13 +304,12 @@ redacted hook payload as JSON, so it is the most stable thing to query.
   Code release. Parsing is tolerant: lines of an unknown shape are skipped and
   counted rather than failing the ingest, and the raw hook events are kept so
   `claudit reingest` can recover fields a newer parser understands.
-- **Only sessions with the hooks installed have full timing.** Backfilled
-  sessions (from before `claudit install`) have tokens, turns, costs and tool
-  calls from their transcripts, but no permission waits or skill triggers,
-  which come from hooks. Their tool durations are estimates (tool_use to
-  tool_result, permission prompts included) and are counted in each tool
-  ranking row's `estimated_duration_calls`; when a hook also saw the call,
-  its timing wins.
+- **Only sessions recorded with the hooks have time.** Imported sessions
+  (from before `claudit install`) have tokens, turns, costs and tool calls
+  from their transcripts, but no time, permission waits or skill triggers
+  (see [above](#imported-sessions-vs-sessions-recorded-with-hooks)). When
+  a hook and a transcript both saw a call, it counts once, with the hook's
+  timing.
 - **Time is measured from hook receive times**, so it includes the small
   delay Claude Code takes to start each hook process.
 - Redaction is pattern based and cannot recognize every secret. Prompts and

@@ -109,7 +109,9 @@ is rebuilt by `claudit reingest`.
 ### Bookkeeping (kept by reingest)
 
 **`meta`** (`key` PK, `value`): `schema_version` (latest migration id),
-`redaction_patterns_version`, `transcripts_skipped_lines` (cumulative count
+`redaction_patterns_version`, `derivation_version` (the
+`ingest::DERIVATION_VERSION` the derived tables were built with, see
+[Reingest](#ingest-pipeline)), `transcripts_skipped_lines` (cumulative count
 of unknown transcript lines), `transcripts_backfilled_at_us` (when the first
 full pass over the transcripts finished).
 
@@ -141,7 +143,8 @@ so any ingest order and a reingest give the same row:
 1. the hooks saw the call complete (`hook_post_at_us`): hook timing;
 2. else the transcript has its `tool_result`: transcript timing, with
    `duration_ms` = result − tool_use time (it includes any permission
-   prompt, so it is coarser than the hook's);
+   prompt, so no report uses it as a duration: reports read the `hook_*`
+   columns, see [Time decomposition](#time-decomposition));
 3. else the call is still running or was interrupted: only `pre_at_us`,
    and the call is left out of every report until its result arrives (in a
    later ingest, if it is in a later chunk of the transcript).
@@ -204,9 +207,9 @@ ingested first.
 | `start_at_us`, `end_at_us` | Earliest and latest main-thread transcript entry. |
 | `submit_at_us`, `stop_at_us` | `UserPromptSubmit` and `Stop` receive times. |
 
-Readers use `COALESCE(submit_at_us, start_at_us)` and
-`COALESCE(stop_at_us, end_at_us)`: hook times when there are hooks,
-transcript times for backfilled sessions.
+Time reports use `submit_at_us` and `stop_at_us` only (a turn without both
+is not timed); ordering and date filters of consumption reports use
+`COALESCE(submit_at_us, start_at_us)`, so imported turns are still counted.
 
 **`api_messages`**: one row per API response, key `message_id`
 (`message.id`). `session_id`, `prompt_id`, `agent_id` (`NULL` on the main
@@ -322,7 +325,19 @@ for the ingest lock, then, in one transaction:
 3. replays `raw_events` in `id` order through the same `events::project`.
 
 It then runs a normal ingest pass, which re-reads every transcript still on
-disk from the start. `KEPT_TABLES` (`meta`, `schema_migrations`,
+disk from the start.
+
+**One-time rebuild after an upgrade.** Transcripts read to their end are
+never read again, so a release that derives more from them (tool calls from
+transcripts, `DERIVATION_VERSION` 1) would never see the old ones. The
+catch-up (`claudit ingest`, `serve`'s start) therefore compares the
+`derivation_version` in `meta` with `ingest::DERIVATION_VERSION` under the
+lock: if it is older or missing and the archive is not empty, it runs the
+reset-and-replay above before its passes (logged as `INFO` in
+`logs/claudit.log`, reported as `IngestReport::rebuilt`), then stores the
+current version, so it happens once. A new archive just stores the version.
+`claudit reingest` stores it too. Bump the constant whenever ingest derives
+more from input it has already read. `KEPT_TABLES` (`meta`, `schema_migrations`,
 `raw_events`, `ingest_offsets`) are left alone. A unit test fails when a table
 exists in neither list.
 
@@ -332,27 +347,30 @@ token counts of sessions whose transcripts are gone are lost by a reingest.
 
 ## Time decomposition
 
-Defined in `src/stats/time.rs`. For each **main-thread turn** with both a
-start and an end:
+Defined in `src/stats/time.rs`. **Time is measured only from hook-recorded
+data.** A session with no hook data at all is **imported** (known only from
+its transcripts: it ran before `claudit install`); it counts for
+consumption (sessions, turns, tokens, cost, models, skills, subagents' tokens,
+tool calls, failures, activity call counts) but never for time, because a
+transcript's timestamps include permission prompts, idle time and background
+tasks. `stats::time::time_coverage` reports how many filtered sessions were
+recorded with hooks and how many are imported, for the dashboard's coverage
+notes. For each **main-thread turn** with both a `UserPromptSubmit` and a
+`Stop` hook:
 
-- **start** = `UserPromptSubmit` receive time, else the turn's first
-  transcript entry; **end** = `Stop` receive time, else its last transcript
-  entry. **Wall** = end − start. The fallback applies per bound, so a turn
-  whose `UserPromptSubmit` or `Stop` hook is missing (a backfilled session,
-  a hook Claude Code failed to run, an interrupted turn) still gets a wall
-  time from its transcript.
-- The turn's main-thread tool calls (`agent_id IS NULL`, with a
-  `post_at_us`) give intervals:
+- **start** = `UserPromptSubmit` receive time; **end** = `Stop` receive
+  time; **wall** = end − start. A turn missing either hook (an imported
+  session, a hook Claude Code failed to run, an interrupted turn) is not
+  timed; there is no transcript fallback.
+- The turn's main-thread tool calls the hooks timed (`agent_id IS NULL`,
+  with a `hook_post_at_us`) give intervals:
   - **execution** = `[post − duration_ms, post]` (or `[pre, post]` when no
     duration is known);
   - **waiting** = `[pre, execution start]` when positive: the call was
     announced (`PreToolUse`) but had not started, i.e. a permission prompt;
-  - a call timed by its transcript only (`timing_source = 'transcript'`, a
-    backfilled session) has execution `[tool_use, tool_result]` and no
-    waiting interval: a permission prompt inside it cannot be told apart,
-    so it counts as tool time. Each call is one row whichever sources saw
-    it, so a call seen by both hooks and transcript counts once, with the
-    hook timing (and its waiting split).
+  - a call known only from its transcript gives no interval (it would
+    carry its permission prompt as tool time). Each call is one row
+    whichever sources saw it, so it counts once, with the hook timing.
 - Calls to `Agent` / `Task` are **subagent** intervals; every other call's
   execution is a **tool** interval. Calls made *inside* a subagent carry an
   `agent_id` and are never main-thread time.
@@ -380,7 +398,12 @@ and tokens are still reported separately (`stats::subagents`). `TurnTime.segment
 positioned, gap-free segments, which the session timeline draws.
 
 Aggregates (`time_breakdown`) sum turns, and assign each turn to the UTC day
-it started. `waiting_by_tool` is a different measure: per tool, the sum over
+it started. The same hook-only rule applies everywhere time appears: tool
+durations and percentiles (`stats::tools`, `CallStats::timed_calls` of
+`calls`), activity time (`stats::activities`), skills' attributed time (the
+turn's hook window), and subagent durations (`totalDurationMs` from the
+Agent tool response, else that call's hook duration; never a transcript
+span). `waiting_by_tool` is a different measure: per tool, the sum over
 calls (subagent calls included) of `max(0, post − duration − pre)`, not
 unioned, alongside the count of `PermissionRequest` events for that tool;
 only hook-timed calls can be measured.
