@@ -138,7 +138,7 @@ inactivity for sessions that never ended cleanly).
 macOS (Apple silicon or Intel):
 
 ```sh
-VERSION=v0.2.0
+VERSION=v0.3.0
 TARGET="$([ "$(uname -m)" = arm64 ] && echo aarch64 || echo x86_64)-apple-darwin"
 mkdir -p ~/.local/bin
 curl -fsSL "https://github.com/TristanShz/claudit/releases/download/$VERSION/claudit-$VERSION-$TARGET.tar.gz" \
