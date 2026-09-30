@@ -161,7 +161,7 @@ fn the_components_sum_to_wall_time_for_every_fixture_turn() {
 }
 
 #[test]
-fn a_transcript_only_turn_falls_back_to_the_transcript_span_as_model_time() {
+fn a_transcript_only_turn_is_timed_from_its_transcript() {
     let env = TestEnv::new();
     env.drop_transcript_fixture(&format!("{ACME}/{SESSION_A}.jsonl"));
     env.ingest();
@@ -170,7 +170,10 @@ fn a_transcript_only_turn_falls_back_to_the_transcript_span_as_model_time() {
     let t1 = turn(&turns, TURN_A1);
     // First to last main-thread user/assistant entry: 09:00:00 → 09:00:30.
     assert_eq!((t1.start, t1.end), (at(0), at(30_000)));
-    assert_eq!(t1.split, split(30_000, 0, 0, 0));
+    // The Bash tool_use (09:00:04) to its tool_result (09:00:20) is tool
+    // time: without hooks the permission prompt inside it can't be told
+    // apart, so there is no waiting.
+    assert_eq!(t1.split, split(14_000, 16_000, 0, 0));
 }
 
 #[test]

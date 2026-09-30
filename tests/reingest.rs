@@ -140,7 +140,9 @@ fn reingest_on_a_populated_archive_yields_identical_reports() {
     let env = TestEnv::new();
     populate(&env);
     let before = reports(&env);
-    assert_eq!(before.tool_ranking.len(), 3, "the archive is populated");
+    // Bash, Agent and Read from the hooks; Edit only from session
+    // `2b7e4f10`'s transcript.
+    assert_eq!(before.tool_ranking.len(), 4, "the archive is populated");
     assert!(before.consumption.sessions > 0, "transcripts were ingested");
     assert!(!before.turn_times.is_empty(), "turns were timed");
     assert!(!before.waiting_by_tool.is_empty(), "waits were measured");
@@ -200,7 +202,13 @@ fn reingest_also_ingests_what_is_still_pending() {
 fn hook_data_survives_a_reingest_after_its_transcripts_are_gone() {
     let env = TestEnv::new();
     populate(&env);
-    let tools = env.tool_ranking(&Filter::default());
+    // A call known only from a transcript goes with it, as its tokens do.
+    let tools: Vec<_> = env
+        .tool_ranking(&Filter::default())
+        .into_iter()
+        .filter(|tool| tool.stats.estimated_duration_calls == 0)
+        .collect();
+    assert_eq!(tools.len(), 3, "only Edit was transcript-only");
     std::fs::remove_dir_all(env.paths.claude_projects_dir()).unwrap();
 
     claudit::ingest::reingest(&env.paths).expect("reingest succeeds");

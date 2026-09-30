@@ -173,7 +173,9 @@ fn populate(env: &TestEnv) {
 /// Everything session `2b7e4f10` (`feat/login`, 2026-03-03) contributes.
 fn login_session_only() -> Digest {
     Digest {
-        tools: vec![("Bash".to_owned(), 1)],
+        // The Bash call comes from a hook; the Edit call only from the
+        // transcript (no hook recorded it, as for a backfilled session).
+        tools: vec![("Bash".to_owned(), 1), ("Edit".to_owned(), 1)],
         bash_commands: strings(&["git"]),
         // Tokens: 5 + 150 + 3200 + 3000.
         consumption: (1, 1, 6355),

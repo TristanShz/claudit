@@ -54,7 +54,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full data flow and data model.
 - from transcripts: session metadata (working directory, git branch, Claude
   Code version), turn timings, permission mode and effort, and for each API
   response the model, timestamp, token counts and the skill or subagent it is
-  attributed to.
+  attributed to; for each tool call its name, input, timestamps and whether
+  it failed (not the error text).
 
 **Never stored:**
 
@@ -66,7 +67,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full data flow and data model.
 - **assistant responses**: the text Claude writes back
   (`last_assistant_message` on `Stop`/`SubagentStop`, and assistant message
   content in transcripts) is never read into the archive;
-- tool results inside transcripts.
+- tool results inside transcripts (only whether a result is an error is
+  read).
 
 The raw spool file holds the untouched payload only until it has been
 ingested; it is deleted once its session has ended (or after 24 hours of
@@ -221,9 +223,12 @@ redacted hook payload as JSON, so it is the most stable thing to query.
   counted rather than failing the ingest, and the raw hook events are kept so
   `claudit reingest` can recover fields a newer parser understands.
 - **Only sessions with the hooks installed have full timing.** Backfilled
-  sessions (from before `claudit install`) have tokens, turns and costs from
-  their transcripts, but no tool calls, permission waits or skill triggers,
-  which come from hooks.
+  sessions (from before `claudit install`) have tokens, turns, costs and tool
+  calls from their transcripts, but no permission waits or skill triggers,
+  which come from hooks. Their tool durations are estimates (tool_use to
+  tool_result, permission prompts included) and are counted in each tool
+  ranking row's `estimated_duration_calls`; when a hook also saw the call,
+  its timing wins.
 - **Time is measured from hook receive times**, so it includes the small
   delay Claude Code takes to start each hook process.
 - Redaction is pattern based and cannot recognize every secret. Prompts and

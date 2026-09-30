@@ -62,9 +62,9 @@ flowchart LR
 | `src/ingest/lock.rs` | `IngestLock`: non-blocking `flock` on `ingest.lock`. |
 | `src/ingest/offsets.rs` | Byte offsets per file identity (path + inode); `read_complete_lines`. |
 | `src/ingest/spool.rs` | Spool files → `raw_events` + projection, one transaction per file. |
-| `src/ingest/events/` | `RawEvent`, `archive`, and `project`: one module per hook event, plus shared `tool_call`, `skill_tool`, `agent_tool`, `subagent_runs`. |
+| `src/ingest/events/` | `RawEvent`, `archive`, and `project`: one module per hook event, plus shared `tool_call` (every write to `tool_calls`, hooks and transcripts, and the timing precedence), `skill_tool`, `agent_tool`, `subagent_runs`. |
 | `src/ingest/bash_command.rs` | The leading command of a Bash call (`git`, `cargo`, …). |
-| `src/ingest/transcripts/` | Transcript files → `sessions`, `turns`, `api_messages`, `transcript_entries`, `subagent_runs`. `entry.rs` is the tolerant line parser. |
+| `src/ingest/transcripts/` | Transcript files → `sessions`, `turns`, `api_messages`, `transcript_entries`, `subagent_runs`, `tool_calls`. `entry.rs` is the tolerant line parser. |
 | `src/ingest/purge.rs` | Spool purge. |
 | `src/ingest/reingest.rs` | Reset-and-replay, `DERIVED_TABLES`, `KEPT_TABLES`. |
 | `src/pricing.rs` | `PriceTable` (from `pricing/prices.toml`), `Usd` (exact picodollars), `Cost`. |
@@ -127,8 +127,24 @@ how far each spool file and transcript has been read.
 ### Derived from hooks
 
 **`tool_calls`**: one row per tool call, key `tool_use_id`. Filled by
-`PreToolUse` (`pre_at_us`) and `PostToolUse` / `PostToolUseFailure` (the
-rest).
+`PreToolUse`, `PostToolUse` / `PostToolUseFailure`, and by the transcripts
+(an assistant entry's `tool_use` block, then a user entry's `tool_result`
+block), so sessions recorded before `claudit install` have tool calls too.
+Each source keeps its own timing (`hook_*`, `transcript_*`); after every
+write the effective timing columns are resolved from them
+(`events::tool_call::resolve_timing`), a pure function of the stored facts,
+so any ingest order and a reingest give the same row:
+
+1. the hooks saw the call complete (`hook_post_at_us`): hook timing;
+2. else the transcript has its `tool_result`: transcript timing, with
+   `duration_ms` = result − tool_use time (it includes any permission
+   prompt, so it is coarser than the hook's);
+3. else the call is still running or was interrupted: only `pre_at_us`,
+   and the call is left out of every report until its result arrives (in a
+   later ingest, if it is in a later chunk of the transcript).
+
+Identity columns (prompt, agent, input, cwd) are filled by whichever source
+comes first; `PostToolUse` overwrites them with its own.
 
 | Column | Meaning |
 | --- | --- |
@@ -140,10 +156,13 @@ rest).
 | `bash_command` | Leading command of a Bash call. |
 | `tool_input` | Redacted input JSON. |
 | `cwd` | Working directory of the call. |
-| `pre_at_us`, `post_at_us` | `PreToolUse` and `PostToolUse(Failure)` receive times. |
-| `duration_ms` | Execution time as reported by Claude Code (excludes permission prompts). |
-| `success` | 1 for `PostToolUse`, 0 for `PostToolUseFailure`. |
-| `error` | Error text of a failure (redacted). |
+| `pre_at_us`, `post_at_us` | Effective: `PreToolUse` and `PostToolUse(Failure)` receive times, or the `tool_use` and `tool_result` entry timestamps. |
+| `duration_ms` | Effective: execution time as reported by Claude Code (excludes permission prompts), or the transcript estimate `post − pre`. |
+| `success` | Effective: 1 for `PostToolUse`, 0 for `PostToolUseFailure`; from a transcript, 0 when the `tool_result` has `is_error: true`. |
+| `timing_source` | `hook` or `transcript`: where the effective timing comes from (`transcript` = estimated duration). |
+| `hook_pre_at_us`, `hook_post_at_us`, `hook_duration_ms`, `hook_success` | What the hooks recorded. |
+| `transcript_pre_at_us`, `transcript_post_at_us`, `transcript_success` | What the transcript recorded (never the result's content). |
+| `error` | Error text of a hook-reported failure (redacted). Not taken from transcripts, whose error text is the tool's output. |
 
 **`permission_requests`**: one row per `PermissionRequest`. PK
 (`session_id`, `at_us`, `tool_name`); also `prompt_id`, `agent_id`,
@@ -282,8 +301,9 @@ archived or projected, `sanitize_hook_payload`:
   `secret|key|token|password|passwd`.
 
 Transcript text (prompts, and each session's working directory and git
-branch) goes through `redact_str` as soon as it is extracted; assistant text
-and tool results are never extracted. The error
+branch) goes through `redact_str`, and tool inputs through `redact_value`,
+as soon as they are extracted; assistant text and tool results are never
+extracted (of a `tool_result`, only its `tool_use_id` and `is_error`). The error
 log is redacted too. Sanitizing is idempotent, so it is safe to re-apply.
 
 **Reingest** (`claudit reingest`, `src/ingest/reingest.rs`) waits up to 60 s
@@ -323,7 +343,13 @@ start and an end:
   - **execution** = `[post − duration_ms, post]` (or `[pre, post]` when no
     duration is known);
   - **waiting** = `[pre, execution start]` when positive: the call was
-    announced (`PreToolUse`) but had not started, i.e. a permission prompt.
+    announced (`PreToolUse`) but had not started, i.e. a permission prompt;
+  - a call timed by its transcript only (`timing_source = 'transcript'`, a
+    backfilled session) has execution `[tool_use, tool_result]` and no
+    waiting interval: a permission prompt inside it cannot be told apart,
+    so it counts as tool time. Each call is one row whichever sources saw
+    it, so a call seen by both hooks and transcript counts once, with the
+    hook timing (and its waiting split).
 - Calls to `Agent` / `Task` are **subagent** intervals; every other call's
   execution is a **tool** interval. Calls made *inside* a subagent carry an
   `agent_id` and are never main-thread time.
@@ -353,7 +379,8 @@ positioned, gap-free segments, which the session timeline draws.
 Aggregates (`time_breakdown`) sum turns, and assign each turn to the UTC day
 it started. `waiting_by_tool` is a different measure: per tool, the sum over
 calls (subagent calls included) of `max(0, post − duration − pre)`, not
-unioned, alongside the count of `PermissionRequest` events for that tool.
+unioned, alongside the count of `PermissionRequest` events for that tool;
+only hook-timed calls can be measured.
 
 ## Cost computation
 

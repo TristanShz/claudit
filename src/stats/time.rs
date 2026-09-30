@@ -16,6 +16,12 @@
 //!   permission prompt), minus tool and subagent time;
 //! - **model** = everything else in the turn.
 //!
+//! A call timed only by its transcript (a backfilled session: no hooks) has
+//! execution `[tool_use, tool_result]` and no waiting interval: a permission
+//! prompt inside it cannot be told apart, so it counts as tool time. There
+//! is one `tool_calls` row per call whichever sources saw it, so nothing is
+//! counted twice.
+//!
 //! Every interval is clipped to the turn, and each instant of the turn is
 //! assigned to exactly one component (subagent > tool > waiting > model),
 //! so the four components always sum to the wall time exactly. The same
@@ -179,6 +185,7 @@ pub struct ToolWaiting {
     /// Sum over the tool's calls of PreToolUse → execution start. Calls
     /// waiting at the same time each count, and subagents' calls are
     /// included (a subagent's permission prompt waits on the user too).
+    /// Only hook-timed calls can be measured.
     pub waiting: Duration,
     /// Calls that waited at all.
     pub calls_waited: u64,
@@ -261,7 +268,7 @@ pub fn waiting_by_tool(conn: &Connection, filter: &Filter) -> Result<Vec<ToolWai
                 SUM({start} > tc.pre_at_us)
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
          WHERE tc.pre_at_us IS NOT NULL AND tc.post_at_us IS NOT NULL
-           AND tc.duration_ms IS NOT NULL AND {}
+           AND tc.duration_ms IS NOT NULL AND tc.timing_source = 'hook' AND {}
          GROUP BY tc.tool_name",
         where_.clause,
         start = super::tools::EXECUTION_START,
@@ -334,7 +341,9 @@ fn load_turns(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec
         ))
     })?;
     let mut calls_stmt = conn.prepare(
-        "SELECT tool_name, pre_at_us, post_at_us, duration_ms FROM tool_calls
+        "SELECT tool_name, pre_at_us, post_at_us, duration_ms,
+                timing_source = 'transcript'
+         FROM tool_calls
          WHERE session_id = ?1 AND prompt_id = ?2 AND agent_id IS NULL
            AND post_at_us IS NOT NULL",
     )?;
@@ -343,11 +352,15 @@ fn load_turns(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec
         let (session_id, prompt_id, prompt_text, start_us, end_us) = row?;
         let calls = calls_stmt
             .query_map(params![session_id, prompt_id], |row| {
+                let transcript_timed = row.get::<_, Option<bool>>(4)? == Some(true);
                 Ok(CallTimes::new(
                     &row.get::<_, String>(0)?,
                     row.get(1)?,
                     row.get(2)?,
-                    row.get(3)?,
+                    // A transcript-timed call's duration is post − pre
+                    // itself: its execution is [pre, post], with no waiting
+                    // split (none can be told apart without hooks).
+                    if transcript_timed { None } else { row.get(3)? },
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;

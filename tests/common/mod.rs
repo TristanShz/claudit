@@ -231,6 +231,17 @@ impl TestEnv {
             });
     }
 
+    /// Copies the tool-call fixture session
+    /// (`tests/fixtures/transcripts/tool_calls`, a backfilled session with
+    /// Bash, Read and Agent calls and a subagent) into the Claude projects
+    /// dir.
+    pub fn drop_tool_calls_fixture(&self) {
+        copy_tree(
+            &fixtures_dir().join("transcripts/tool_calls"),
+            &self.paths.claude_projects_dir(),
+        );
+    }
+
     /// Replays the hook payloads captured from a real Claude Code session
     /// (`tests/fixtures/hooks/captured-<version>/`), in file-name order, each
     /// at the receive time its `received_at.json` records.
@@ -374,6 +385,12 @@ pub fn hook_fixture(name: &str) -> Value {
     let path = fixtures_dir().join("hooks").join(name);
     let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// Contents of `tests/fixtures/transcripts/<relative>`.
+pub fn transcripts_fixture_file(relative: &str) -> String {
+    let path = fixtures_dir().join("transcripts").join(relative);
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
 /// Contents of `tests/fixtures/transcripts/projects/<relative>`.

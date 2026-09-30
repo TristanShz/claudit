@@ -2,6 +2,8 @@
 //!
 //! Every ranking counts completed calls, successful or failed, and orders
 //! rows by call count, then total duration (both descending), then name.
+//! Calls known only from a transcript (backfilled sessions) are included,
+//! with estimated durations, counted in `estimated_duration_calls`.
 //!
 //! Percentiles use the **nearest-rank** method over the calls that report a
 //! duration: the p-th percentile of `n` sorted durations is the value at
@@ -30,12 +32,17 @@ pub struct CallStats {
     pub calls: u64,
     /// Calls that ended in `PostToolUseFailure`.
     pub failures: u64,
-    /// Sum of the calls' execution time (`duration_ms`).
+    /// Sum of the calls' execution time (`duration_ms`; estimated for
+    /// [`Self::estimated_duration_calls`] of them).
     pub total_duration_ms: u64,
     /// Nearest-rank median execution time (`None` if no call reported one).
     pub median_duration_ms: Option<u64>,
     /// Nearest-rank 95th percentile execution time.
     pub p95_duration_ms: Option<u64>,
+    /// Calls whose duration is estimated from the transcript (tool_result
+    /// time − tool_use time, permission prompts included) because no hook
+    /// timed them: sessions recorded before `claudit install`.
+    pub estimated_duration_calls: u64,
 }
 
 impl CallStats {
@@ -109,7 +116,7 @@ fn rank_where(
     params: Vec<Value>,
 ) -> Result<Vec<RankedCalls>> {
     let sql = format!(
-        "SELECT tc.{key}, tc.success, tc.duration_ms
+        "SELECT tc.{key}, tc.success, tc.duration_ms, tc.timing_source = 'transcript'
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
          WHERE tc.post_at_us IS NOT NULL AND tc.{key} IS NOT NULL AND {clause}"
     );
@@ -120,6 +127,7 @@ fn rank_where(
     struct Group {
         calls: u64,
         failures: u64,
+        estimated: u64,
         durations: Vec<u64>,
     }
     let mut groups: BTreeMap<String, Group> = BTreeMap::new();
@@ -131,6 +139,9 @@ fn rank_where(
         }
         if let Some(ms) = row.get::<_, Option<i64>>(2)? {
             group.durations.push(ms.max(0) as u64);
+            if row.get::<_, Option<bool>>(3)? == Some(true) {
+                group.estimated += 1;
+            }
         }
     }
 
@@ -146,6 +157,7 @@ fn rank_where(
                     total_duration_ms: group.durations.iter().sum(),
                     median_duration_ms: nearest_rank(&group.durations, 50),
                     p95_duration_ms: nearest_rank(&group.durations, 95),
+                    estimated_duration_calls: group.estimated,
                 },
             }
         })

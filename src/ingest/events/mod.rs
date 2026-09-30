@@ -19,7 +19,7 @@ mod stop;
 pub(crate) mod subagent_runs;
 mod subagent_start;
 mod subagent_stop;
-mod tool_call;
+pub(crate) mod tool_call;
 mod user_prompt_expansion;
 mod user_prompt_submit;
 

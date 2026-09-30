@@ -81,6 +81,8 @@ Fixtures live in `tests/fixtures/`:
   subagent transcript and its `.meta.json`;
 - `transcripts/cost/…`: transcripts for cost tests, kept out of `projects/`
   so the totals documented for `projects/` stay valid;
+- `transcripts/tool_calls/…`: a backfilled session for tool calls read from
+  transcripts, kept out of `projects/` for the same reason;
 - `settings/*.json`: Claude Code settings files for seam 2;
 - `hooks/captured-<version>/` and `transcripts/captured-<version>/`: one real
   session captured from Claude Code `<version>`, anonymized

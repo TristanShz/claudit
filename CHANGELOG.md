@@ -10,6 +10,18 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **Tool calls from transcripts**: sessions imported by the transcript
+  backfill (everything before `claudit install`) now get their tool calls,
+  Bash commands, failures and durations, subagent calls included. Durations
+  are estimated from the transcript (tool_use to tool_result, permission
+  prompts included) and flagged as such (`timing_source`, and
+  `CallStats::estimated_duration_calls` in the rankings); hook timing always
+  wins when both sources saw a call, in any ingest order. Tool result
+  content is never stored. Run `claudit reingest` to backfill existing
+  archives.
+
 ## [0.1.0] - Unreleased
 
 First public release.

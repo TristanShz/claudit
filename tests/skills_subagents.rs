@@ -213,7 +213,8 @@ fn a_subagent_known_only_from_its_transcript_is_still_reported() {
             agent_type: "general-purpose".into(),
             runs: 1,
             total_duration: Duration::seconds(62),
-            tool_calls: 0,
+            // Its Read call, from the tool_use / tool_result pair.
+            tool_calls: 1,
             model: Some(HAIKU.into()),
             tokens: subagent_tokens(),
         }]
