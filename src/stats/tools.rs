@@ -1,4 +1,5 @@
-//! Tool rankings: by tool, by Bash leading command and by MCP server.
+//! Tool rankings: by tool and by MCP server (Bash commands: see
+//! [`super::commands`]).
 //!
 //! Every ranking counts completed calls, successful or failed, and orders
 //! rows by call count, then total duration (both descending), then name.
@@ -64,10 +65,6 @@ pub struct RankedCalls {
     pub stats: CallStats,
 }
 
-/// When a call of `tool_calls tc` started executing, in SQL: the rule of
-/// [`crate::clock::execution_start_us`] (NULL without a duration).
-pub(super) const EXECUTION_START: &str = "(tc.post_at_us - MAX(tc.duration_ms, 0) * 1000)";
-
 /// Filter columns of `tool_calls tc LEFT JOIN sessions s`.
 pub(super) const TOOL_CALL_COLUMNS: FilterColumns = FilterColumns {
     time_us: "tc.post_at_us",
@@ -79,12 +76,6 @@ pub(super) const TOOL_CALL_COLUMNS: FilterColumns = FilterColumns {
 /// Tools ranked by call count, with durations and failure rate.
 pub fn tool_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<RankedCalls>> {
     ranking(conn, filter, "tool_name")
-}
-
-/// Bash calls grouped by leading command (`git`, `cargo`, …). Calls whose
-/// command could not be derived are left out.
-pub fn bash_command_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<RankedCalls>> {
-    ranking(conn, filter, "bash_command")
 }
 
 /// MCP tool calls grouped by server (`mcp__<server>__<tool>`).

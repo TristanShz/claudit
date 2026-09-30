@@ -15,12 +15,12 @@
 </section>
 <div class="row-2">
   <section class="card" id="bash-section">
-    <h2>Bash commands</h2>
-    {% if bash_commands.is_empty() %}
+    <h2>Bash commands <a class="all-link" href="/commands{{ frame.query }}">All{% if more_commands > 0 %} ({{ more_commands }} more){% endif %} →</a></h2>
+    {% if bash_commands.rows.is_empty() %}
     <p class="empty">No Bash call for this filter.</p>
     {% else %}
-    {% let label = "Command" %}{% let rows = bash_commands %}
-    {% include "partials/tool_table.html" %}
+    {% let table = bash_commands %}
+    {% include "partials/command_table.html" %}
     {% endif %}
   </section>
   <section class="card" id="mcp-section">

@@ -1,5 +1,5 @@
-//! The overview (home) page: KPIs, where the time goes, what the tools
-//! spend time on, the top tools,
+//! The overview (home) page: KPIs, where the time goes, the most used and
+//! slowest Bash commands, what the tools spend time on, the top tools,
 //! skills, subagents and models, and the most recent sessions.
 
 mod time_section;
@@ -11,13 +11,16 @@ use askama::Template;
 use axum::extract::{Query, State};
 use axum::response::Html;
 
+use crate::activities::WAITING;
 use crate::db;
 use crate::pricing::{Cost, PriceTable};
+use crate::stats::commands::{self, CommandSort};
 use crate::stats::consumption::{self, Consumption};
 use crate::stats::time::TimeBreakdown;
 use crate::stats::tools::RankedCalls;
 use crate::stats::{activities, cost, models, sessions, skills, subagents, time, tools};
 use crate::web::AppState;
+use crate::web::commands_table::{CommandsTable, page_href};
 use crate::web::coverage::TimeNote;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
@@ -44,6 +47,10 @@ struct OverviewPage {
     activities_total: String,
     /// Activity bars show calls: nothing in the filter was hook-timed.
     activities_by_calls: bool,
+    /// Bash commands with the most runs.
+    most_used: CommandsTable,
+    /// Bash commands with the most total time.
+    slowest: CommandsTable,
     tools: Vec<ToolRow>,
     skills: Vec<SkillRow>,
     subagents: Vec<SubagentRow>,
@@ -146,7 +153,23 @@ pub(in crate::web) async fn handler(
             &cost::total_cost(&conn, &filter, prices)?.cost,
         );
         let activity_breakdown = activities::activity_breakdown(&conn, &filter, &frame.rules)?;
-        let time = TimeSection::build(breakdown, time::waiting_by_tool(&conn, &filter)?)?;
+        let time = TimeSection::build(breakdown)?;
+        let mut ranking =
+            commands::command_ranking(&conn, &filter, &frame.rules, CommandSort::Calls)?;
+        let most_used = CommandsTable::new(&ranking, TOP, None, None);
+        ranking.sort(CommandSort::Total);
+        // Waiting & polling would top "Slowest": time spent waiting on
+        // background work, not work.
+        let hidden = ranking.hide_activity(WAITING);
+        let slowest = CommandsTable::new(&ranking, TOP, None, None).with_hidden(
+            hidden,
+            page_href(
+                "/commands",
+                &frame.query,
+                &[("sort", "total"), ("polling", "show")],
+                "",
+            ),
+        );
 
         let costs: HashMap<String, Cost> = cost::cost_by_session(&conn, &filter, prices)?
             .into_iter()
@@ -173,6 +196,8 @@ pub(in crate::web) async fn handler(
             activities: rows::activity_rows(&activity_breakdown),
             activities_total: format::duration_ms(activity_breakdown.total_duration_ms),
             activities_by_calls: rows::activities_by_calls(&activity_breakdown),
+            most_used,
+            slowest,
             tools,
             skills,
             subagents,

@@ -183,21 +183,6 @@ pub struct TimeBreakdown {
     pub by_day: Vec<DayTime>,
 }
 
-/// Waiting on the user, for one tool.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolWaiting {
-    pub tool_name: String,
-    /// Sum over the tool's calls of PreToolUse → execution start. Calls
-    /// waiting at the same time each count, and subagents' calls are
-    /// included (a subagent's permission prompt waits on the user too).
-    /// Only hook-timed calls can be measured.
-    pub waiting: Duration,
-    /// Calls that waited at all.
-    pub calls_waited: u64,
-    /// PermissionRequest events for the tool.
-    pub permission_requests: u64,
-}
-
 /// Which sessions the time reports cover: time is measured only on the
 /// sessions the hooks recorded, never on imported ones.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -238,13 +223,6 @@ pub(super) const TURN_COLUMNS: FilterColumns = FilterColumns {
     cwd: Some("s.cwd"),
     branch: Some("s.git_branch"),
     model: Some("m.model"),
-};
-
-const PERMISSION_COLUMNS: FilterColumns = FilterColumns {
-    time_us: "pr.at_us",
-    cwd: Some("COALESCE(pr.cwd, s.cwd)"),
-    branch: Some("s.git_branch"),
-    model: Some(first_model_of_turn!("pr")),
 };
 
 /// Every filtered main-thread turn with an end, oldest first.
@@ -306,75 +284,6 @@ pub fn time_coverage(conn: &Connection, filter: &Filter) -> Result<TimeCoverage>
         imported_sessions: imported.max(0) as u64,
         hooks_since: since.map(clock::from_micros),
     })
-}
-
-/// Tools that made the user wait, most waiting first.
-pub fn waiting_by_tool(conn: &Connection, filter: &Filter) -> Result<Vec<ToolWaiting>> {
-    let mut by_tool: BTreeMap<String, ToolWaiting> = BTreeMap::new();
-    fn entry(map: &mut BTreeMap<String, ToolWaiting>, name: String) -> &mut ToolWaiting {
-        map.entry(name.clone()).or_insert_with(|| ToolWaiting {
-            tool_name: name,
-            waiting: Duration::zero(),
-            calls_waited: 0,
-            permission_requests: 0,
-        })
-    }
-
-    let where_ = filter.sql(&super::tools::TOOL_CALL_COLUMNS)?;
-    let sql = format!(
-        "SELECT tc.tool_name,
-                SUM(MAX(0, {start} - tc.pre_at_us)),
-                SUM({start} > tc.pre_at_us)
-         FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
-         WHERE tc.pre_at_us IS NOT NULL AND tc.post_at_us IS NOT NULL
-           AND tc.duration_ms IS NOT NULL AND tc.timing_source = 'hook' AND {}
-         GROUP BY tc.tool_name",
-        where_.clause,
-        start = super::tools::EXECUTION_START,
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(where_.params), |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, i64>(2)?,
-        ))
-    })?;
-    for row in rows {
-        let (name, waiting_us, waited) = row?;
-        let tool = entry(&mut by_tool, name);
-        tool.waiting = Duration::microseconds(waiting_us);
-        tool.calls_waited = waited as u64;
-    }
-
-    let where_ = filter.sql(&PERMISSION_COLUMNS)?;
-    let sql = format!(
-        "SELECT pr.tool_name, COUNT(*)
-         FROM permission_requests pr LEFT JOIN sessions s ON s.session_id = pr.session_id
-         WHERE {}
-         GROUP BY pr.tool_name",
-        where_.clause
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(where_.params), |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    })?;
-    for row in rows {
-        let (name, count) = row?;
-        entry(&mut by_tool, name).permission_requests = count as u64;
-    }
-
-    let mut tools: Vec<ToolWaiting> = by_tool
-        .into_values()
-        .filter(|t| t.waiting > Duration::zero() || t.permission_requests > 0)
-        .collect();
-    tools.sort_by(|a, b| {
-        b.waiting
-            .cmp(&a.waiting)
-            .then(b.permission_requests.cmp(&a.permission_requests))
-            .then_with(|| a.tool_name.cmp(&b.tool_name))
-    });
-    Ok(tools)
 }
 
 fn load_turns(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec<TurnTime>> {

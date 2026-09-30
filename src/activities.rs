@@ -12,13 +12,15 @@
 //! history without re-ingesting (like prices, see `pricing`).
 //!
 //! Besides its activity, each call gets a **detail**, the group it is
-//! counted in within the activity: for Bash, the command normalized to its
-//! program and subcommand (`cargo test`, `pnpm exec vitest`,
-//! `python -m pytest`); for an MCP tool, its server; otherwise the tool
-//! name.
+//! counted in within the activity: for Bash, its command key
+//! ([`crate::shell::command_key`]: `cargo test`, `pnpm exec vitest`,
+//! `python -m pytest`), which `stats::commands` ranks too; for an MCP tool,
+//! its server; otherwise the tool name. Command lines are read by
+//! [`crate::shell`].
 
 use std::borrow::Cow;
-use std::sync::{Mutex, OnceLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result, bail};
 use regex::Regex;
@@ -26,6 +28,7 @@ use serde::Deserialize;
 
 use crate::logfile;
 use crate::paths::Paths;
+use crate::shell::{self, SimpleCommand};
 
 const BUILTIN: &str = include_str!("../activities/rules.toml");
 
@@ -33,6 +36,9 @@ const BUILTIN: &str = include_str!("../activities/rules.toml");
 pub const OTHER_SHELL: &str = "Other shell";
 /// The activity of any other call no rule matches.
 pub const OTHER: &str = "Other";
+/// The built-in activity of Bash lines that only wait: polling loops and
+/// bare `sleep`s.
+pub const WAITING: &str = "Waiting & polling";
 
 /// A tool call, as far as classification is concerned.
 #[derive(Debug, Clone, Copy, Default)]
@@ -53,12 +59,23 @@ pub struct Classification<'r, 'c> {
     pub detail: Cow<'c, str>,
 }
 
-/// An ordered list of rules. Cheap to clone (compiled regexes are shared).
+/// An ordered list of rules. Cheap to clone (compiled regexes are shared),
+/// optionally with a classification cache shared by its clones (see
+/// [`ActivityRules::with_classification_cache`]).
 #[derive(Debug, Clone)]
 pub struct ActivityRules {
     /// `version` of the built-in file, plus the user file's when merged.
     pub version: String,
     rules: Vec<Rule>,
+    cache: Option<Arc<Mutex<HashMap<String, Cached>>>>,
+}
+
+/// A cached classification: the index of the rule that matched (`None`
+/// for [`OTHER_SHELL`] / [`OTHER`]) and the detail.
+#[derive(Debug, Clone)]
+struct Cached {
+    rule: Option<usize>,
+    detail: String,
 }
 
 #[derive(Debug, Clone)]
@@ -137,7 +154,21 @@ impl ActivityRules {
         Ok(Self {
             version: file.version,
             rules,
+            cache: None,
         })
+    }
+
+    /// These rules with a fresh classification cache: each distinct call
+    /// is classified once, however many reports classify it, until this
+    /// value and its clones are dropped. The dashboard makes one per page
+    /// (`web::frame`), so the activities, commands and trace reports of a
+    /// page share their work; the cache is never kept across pages, so it
+    /// cannot grow with the archive.
+    pub fn with_classification_cache(&self) -> ActivityRules {
+        ActivityRules {
+            cache: Some(Arc::default()),
+            ..self.clone()
+        }
     }
 
     /// `overrides` first, then these rules.
@@ -149,6 +180,7 @@ impl ActivityRules {
                 format!("{} + user rules {}", self.version, overrides.version)
             },
             rules: overrides.rules.iter().chain(&self.rules).cloned().collect(),
+            cache: None,
         }
     }
 
@@ -215,15 +247,47 @@ impl ActivityRules {
 
     /// The activity of `call` and its detail.
     pub fn classify<'r, 'c>(&'r self, call: &ToolCall<'c>) -> Classification<'r, 'c> {
+        let Some(cache) = &self.cache else {
+            return self.classify_uncached(call);
+        };
+        let key = format!(
+            "{}\0{}\0{}\0{}",
+            call.tool_name,
+            call.mcp_server.unwrap_or("\u{1}"),
+            call.bash_command.unwrap_or("\u{1}"),
+            call.command.unwrap_or("\u{1}"),
+        );
+        let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let cached = cache.entry(key).or_insert_with(|| {
+            let c = self.classify_uncached(call);
+            Cached {
+                rule: self
+                    .rules
+                    .iter()
+                    .position(|r| std::ptr::eq(r.activity.as_str(), c.activity)),
+                detail: c.detail.into_owned(),
+            }
+        });
+        Classification {
+            activity: match cached.rule {
+                Some(i) => &self.rules[i].activity,
+                None if call.tool_name == "Bash" => OTHER_SHELL,
+                None => OTHER,
+            },
+            detail: Cow::Owned(cached.detail.clone()),
+        }
+    }
+
+    fn classify_uncached<'r, 'c>(&'r self, call: &ToolCall<'c>) -> Classification<'r, 'c> {
         let is_bash = call.tool_name == "Bash";
-        let segments = match (is_bash, call.command) {
-            (true, Some(command)) => simple_commands(command),
+        let commands = match (is_bash, call.command) {
+            (true, Some(command)) => shell::simple_commands(command),
             _ => Vec::new(),
         };
         let leading: Option<Cow<'c, str>> = call
             .bash_command
             .map(Cow::Borrowed)
-            .or_else(|| leading_program(&segments).map(|p| Cow::Owned(p.to_owned())));
+            .or_else(|| shell::leading(&commands).map(|c| Cow::Owned(c.leading_name().to_owned())));
 
         for rule in &self.rules {
             if !rule.tools.iter().any(|g| g.matches(call.tool_name)) {
@@ -239,28 +303,34 @@ impl ActivityRules {
             }
             let mut matched = None;
             if let Some(pattern) = &rule.pattern {
-                matched = segments.iter().position(|s| pattern.is_match(&s.text));
+                matched = commands.iter().position(|c| pattern.is_match(&c.text));
                 if matched.is_none() {
                     continue;
                 }
             }
             return Classification {
                 activity: &rule.activity,
-                detail: detail(call, &segments, matched, leading.as_deref()),
+                detail: detail(call, &commands, matched, leading.as_deref()),
             };
         }
         Classification {
             activity: if is_bash { OTHER_SHELL } else { OTHER },
-            detail: detail(call, &segments, None, leading.as_deref()),
+            detail: detail(call, &commands, None, leading.as_deref()),
         }
     }
 }
 
 /// The detail of a call: see the module docs. `matched` is the simple
 /// command a rule's pattern matched, if any.
+///
+/// A Bash line of several simple commands is named after its most
+/// significant one: the one the matching rule's pattern matched (rules go
+/// tests, lint, build, git, … in that order, so `cargo build && cargo
+/// test` is `cargo test`), else the one it leads with (`cd web && pnpm
+/// dev` is `pnpm dev`, see [`shell`]).
 fn detail<'c>(
     call: &ToolCall<'c>,
-    segments: &[SimpleCommand],
+    commands: &[SimpleCommand],
     matched: Option<usize>,
     leading: Option<&str>,
 ) -> Cow<'c, str> {
@@ -270,328 +340,15 @@ fn detail<'c>(
     if call.tool_name != "Bash" {
         return Cow::Borrowed(call.tool_name);
     }
-    let segment = matched
-        .map(|i| &segments[i])
-        .or_else(|| leading.and_then(|leading| segments.iter().find(|s| s.words[0] == leading)))
-        .or_else(|| segments.iter().find(|s| !is_directory_change(&s.words[0])))
-        .or(segments.first());
-    match (segment, leading) {
-        (Some(segment), _) => Cow::Owned(normalized(&segment.words)),
+    let command = matched
+        .map(|i| &commands[i])
+        .or_else(|| leading.and_then(|leading| commands.iter().find(|c| c.program() == leading)))
+        .or_else(|| shell::leading(commands));
+    match (command, leading) {
+        (Some(command), _) => Cow::Owned(shell::command_key(command)),
         (None, Some(leading)) => Cow::Owned(leading.to_owned()),
         (None, None) => Cow::Borrowed(call.tool_name),
     }
-}
-
-/// Programs whose first argument is a subcommand worth keeping
-/// (`git status`, `cargo test`, `brew install`).
-const SUBCOMMAND_PROGRAMS: &[&str] = &[
-    "apt",
-    "apt-get",
-    "astro",
-    "brew",
-    "bun",
-    "bunx",
-    "bundle",
-    "cargo",
-    "composer",
-    "conda",
-    "deno",
-    "docker",
-    "docker-compose",
-    "dotnet",
-    "gem",
-    "gh",
-    "git",
-    "glab",
-    "go",
-    "gradle",
-    "gradlew",
-    "hatch",
-    "just",
-    "kubectl",
-    "make",
-    "mix",
-    "mvn",
-    "mvnw",
-    "next",
-    "npm",
-    "npx",
-    "nuxt",
-    "nx",
-    "pdm",
-    "pip",
-    "pip3",
-    "pipenv",
-    "pipx",
-    "pnpm",
-    "pod",
-    "podman",
-    "poetry",
-    "rake",
-    "rustup",
-    "swift",
-    "terraform",
-    "turbo",
-    "uv",
-    "uvx",
-    "vite",
-    "yarn",
-    "zig",
-];
-
-/// Subcommands that run something named by the next word
-/// (`npm run build`, `pnpm exec vitest`, `bundle exec rspec`).
-const RUNNERS: &[&str] = &["run", "exec", "dlx", "x"];
-
-/// A command's program and subcommand words: `cargo test`,
-/// `npm run build`, `python -m pytest`, or the program alone.
-fn normalized(words: &[String]) -> String {
-    let program = words[0].as_str();
-    let rest = &words[1..];
-    let is_word = |w: &&String| {
-        !w.is_empty()
-            && !w.starts_with('-')
-            && !w.contains(['/', '=', '.', '\'', '"', '$', '*', '@'])
-    };
-    let mut out = vec![program];
-    let is_python = program.starts_with("python") || program == "py";
-    if is_python && rest.first().is_some_and(|w| w == "-m") {
-        out.push("-m");
-        out.extend(rest.get(1).map(String::as_str));
-    } else if SUBCOMMAND_PROGRAMS.contains(&program)
-        && let Some(sub) = rest.first().filter(is_word)
-    {
-        out.push(sub);
-        if RUNNERS.contains(&sub.as_str())
-            && let Some(target) = rest.get(1).filter(is_word)
-        {
-            out.push(target);
-        }
-    }
-    out.join(" ")
-}
-
-fn is_directory_change(program: &str) -> bool {
-    matches!(program, "cd" | "pushd" | "popd")
-}
-
-/// The leading command of a line (the rule of `ingest::bash_command`): the
-/// first simple command that is not a directory change, else `cd`.
-fn leading_program(segments: &[SimpleCommand]) -> Option<&str> {
-    segments
-        .iter()
-        .map(|s| s.words[0].as_str())
-        .find(|p| !is_directory_change(p))
-        .or_else(|| segments.first().map(|s| s.words[0].as_str()))
-}
-
-/// Programs that only run another command, and their options taking a
-/// value (as in `ingest::bash_command`).
-const WRAPPERS: [(&str, &[&str]); 8] = [
-    (
-        "sudo",
-        &["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"],
-    ),
-    ("env", &["-u", "-C", "-S"]),
-    ("time", &["-f", "-o"]),
-    ("nohup", &[]),
-    ("nice", &["-n"]),
-    ("timeout", &["-k", "-s"]),
-    ("command", &[]),
-    ("exec", &["-a"]),
-];
-
-/// One simple command of a line, prefixes and wrappers removed.
-#[derive(Debug)]
-struct SimpleCommand {
-    /// Unquoted words, the program reduced to its file name. Never empty.
-    words: Vec<String>,
-    /// The program's file name, then the rest of the original text (quotes
-    /// kept): what rule patterns are matched against.
-    text: String,
-}
-
-/// A word of a line: its unquoted text and where it ends in the line.
-struct Word {
-    text: String,
-    end: usize,
-}
-
-/// Splits a command line into simple commands, at `&&`, `||`, `;`, `|`,
-/// `&`, newlines and parentheses outside quotes, skipping here-document
-/// bodies.
-fn simple_commands(line: &str) -> Vec<SimpleCommand> {
-    let mut commands = Vec::new();
-    let mut words: Vec<Word> = Vec::new();
-    let mut word = String::new();
-    let mut in_word = false;
-    let mut heredoc: Option<String> = None;
-    let mut chars = line.char_indices().peekable();
-
-    let finish = |words: &mut Vec<Word>, commands: &mut Vec<SimpleCommand>, end: usize| {
-        if let Some(command) = simple_command(line, std::mem::take(words), end) {
-            commands.push(command);
-        }
-    };
-
-    while let Some((at, c)) = chars.next() {
-        let end_word = |word: &mut String, in_word: &mut bool, words: &mut Vec<Word>| {
-            if *in_word {
-                words.push(Word {
-                    text: std::mem::take(word),
-                    end: at,
-                });
-                *in_word = false;
-            }
-        };
-        match c {
-            '\'' => {
-                in_word = true;
-                for (_, q) in chars.by_ref() {
-                    if q == '\'' {
-                        break;
-                    }
-                    word.push(q);
-                }
-            }
-            '"' => {
-                in_word = true;
-                while let Some((_, q)) = chars.next() {
-                    match q {
-                        '"' => break,
-                        '\\' => word.extend(chars.next().map(|(_, e)| e)),
-                        _ => word.push(q),
-                    }
-                }
-            }
-            '\\' => {
-                in_word = true;
-                match chars.next() {
-                    Some((_, '\n')) | None => {}
-                    Some((_, escaped)) => word.push(escaped),
-                }
-            }
-            '#' if !in_word => {
-                for (_, rest) in chars.by_ref() {
-                    if rest == '\n' {
-                        break;
-                    }
-                }
-                finish(&mut words, &mut commands, at);
-            }
-            '<' if !in_word && line[at..].starts_with("<<") && !line[at..].starts_with("<<<") => {
-                chars.next();
-                let rest = &line[at + 2..];
-                let delimiter: String = rest
-                    .trim_start_matches('-')
-                    .trim_start()
-                    .chars()
-                    .take_while(|c| !c.is_whitespace() && !matches!(c, ';' | '&' | '|' | ')'))
-                    .filter(|c| !matches!(c, '\'' | '"' | '\\'))
-                    .collect();
-                if !delimiter.is_empty() {
-                    heredoc = Some(delimiter);
-                }
-            }
-            // Redirections `2>&1`, `>&2` and `&>file` are not separators.
-            '&' if (in_word && word.ends_with('>'))
-                || chars.peek().map(|(_, c)| *c) == Some('>') =>
-            {
-                in_word = true;
-                word.push(c);
-            }
-            ';' | '&' | '|' | '\n' | '(' | ')' => {
-                end_word(&mut word, &mut in_word, &mut words);
-                finish(&mut words, &mut commands, at);
-                if c == '\n'
-                    && let Some(delimiter) = heredoc.take()
-                {
-                    // Skip the body, up to and including the delimiter line.
-                    let mut current = String::new();
-                    for (_, b) in chars.by_ref() {
-                        if b == '\n' {
-                            if current.trim() == delimiter {
-                                break;
-                            }
-                            current.clear();
-                        } else {
-                            current.push(b);
-                        }
-                    }
-                }
-            }
-            c if c.is_whitespace() => end_word(&mut word, &mut in_word, &mut words),
-            c => {
-                in_word = true;
-                word.push(c);
-            }
-        }
-    }
-    if in_word {
-        words.push(Word {
-            text: word,
-            end: line.len(),
-        });
-    }
-    finish(&mut words, &mut commands, line.len());
-    commands
-}
-
-/// The simple command of `words` (ending at byte `end` of `line`), without
-/// its assignments, `{` / `!` and wrappers; `None` when nothing is left.
-fn simple_command(line: &str, words: Vec<Word>, end: usize) -> Option<SimpleCommand> {
-    let mut rest = words.into_iter().peekable();
-    while rest
-        .peek()
-        .is_some_and(|w| is_assignment(&w.text) || w.text == "{" || w.text == "!")
-    {
-        rest.next();
-    }
-    loop {
-        let first = rest.next()?;
-        let program = first
-            .text
-            .rsplit('/')
-            .next()
-            .unwrap_or(&first.text)
-            .to_owned();
-        if program.is_empty() {
-            return None;
-        }
-        let Some((wrapper, valued)) = WRAPPERS.iter().find(|(name, _)| *name == program) else {
-            let text = format!("{program}{}", line[first.end..end].trim_end());
-            let mut words = vec![program];
-            words.extend(rest.map(|w| w.text));
-            return Some(SimpleCommand { words, text });
-        };
-        while let Some(next) = rest.peek() {
-            if next.text.starts_with('-') && next.text.len() > 1 {
-                let option = rest.next().expect("peeked");
-                if valued.contains(&option.text.as_str()) {
-                    rest.next();
-                }
-            } else if *wrapper == "env" && is_assignment(&next.text) {
-                rest.next();
-            } else {
-                break;
-            }
-        }
-        if *wrapper == "timeout" {
-            rest.next();
-        }
-    }
-}
-
-/// `NAME=value` with a valid shell variable name.
-fn is_assignment(word: &str) -> bool {
-    let Some((name, _value)) = word.split_once('=') else {
-        return false;
-    };
-    let mut chars = name.chars();
-    chars
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// A tool-name pattern: `*` matches any run of characters, `?` any one.
@@ -672,7 +429,7 @@ mod tests {
             ("npm test", "Tests", "npm test"),
             ("npm run test:unit", "Tests", "npm run test:unit"),
             ("pnpm test", "Tests", "pnpm test"),
-            ("pnpm --filter web test", "Tests", "pnpm"),
+            ("pnpm --filter web test", "Tests", "pnpm test"),
             ("yarn test", "Tests", "yarn test"),
             ("bun test", "Tests", "bun test"),
             ("npx jest src/app.test.ts", "Tests", "npx jest"),
@@ -697,7 +454,7 @@ mod tests {
             ("rspec", "Tests", "rspec"),
             ("vendor/bin/phpunit", "Tests", "phpunit"),
             ("dotnet test", "Tests", "dotnet test"),
-            ("mvn -q test", "Tests", "mvn"),
+            ("mvn -q test", "Tests", "mvn test"),
             ("./gradlew test", "Tests", "gradlew test"),
             ("make test", "Tests", "make test"),
             ("just test", "Tests", "just test"),
@@ -717,8 +474,8 @@ mod tests {
             ("npx eslint .", "Lint & format", "npx eslint"),
             ("prettier --write src", "Lint & format", "prettier"),
             ("pnpm lint", "Lint & format", "pnpm lint"),
-            ("biome check .", "Lint & format", "biome"),
-            ("ruff check .", "Lint & format", "ruff"),
+            ("biome check .", "Lint & format", "biome check"),
+            ("ruff check .", "Lint & format", "ruff check"),
             ("black .", "Lint & format", "black"),
             ("golangci-lint run", "Lint & format", "golangci-lint"),
             // Build & typecheck
@@ -778,7 +535,31 @@ mod tests {
             ("curl -s https://example.com", "Web", "curl"),
             // Fallback
             ("echo hello", "Other shell", "echo"),
-            ("sleep 5", "Other shell", "sleep"),
+            // Waiting & polling: what the whole line does is wait.
+            ("sleep 5", "Waiting & polling", "sleep"),
+            (
+                "echo 'waiting for CI'; sleep 60",
+                "Waiting & polling",
+                "sleep",
+            ),
+            (
+                "until grep -q 'Test Files' /tmp/run.log; do sleep 10; done",
+                "Waiting & polling",
+                "until grep",
+            ),
+            (
+                "while pgrep -f vitest >/dev/null; do sleep 2; done",
+                "Waiting & polling",
+                "while pgrep",
+            ),
+            (
+                "until [ -f /tmp/done ]; do sleep 5; done",
+                "Waiting & polling",
+                "until test",
+            ),
+            // A sleep before real work does not make the line a wait.
+            ("sleep 30 && gh run view 123", "Git & GitHub", "gh run"),
+            ("sleep 2; cargo test", "Tests", "cargo test"),
         ];
         let mut wrong = Vec::new();
         for (command, activity, detail) in table {
@@ -790,6 +571,148 @@ mod tests {
             }
         }
         assert!(wrong.is_empty(), "misclassified:\n{}", wrong.join("\n"));
+    }
+
+    /// A Bash call's detail is its command key (`/commands`): program and
+    /// meaningful subcommand, never a path, a file or an argument. Shapes
+    /// after real command lines, all content invented.
+    #[test]
+    fn a_bash_calls_detail_is_its_command_key() {
+        let table: &[(&str, &str)] = &[
+            // Program + subcommand, arguments dropped.
+            ("git status --short", "git status"),
+            (
+                "git -C /Users/alice/code/acme-api log --oneline -5",
+                "git log",
+            ),
+            ("git --no-pager diff --stat", "git diff"),
+            ("gh pr view 42 --json title,body", "gh pr"),
+            ("gh issue view 795 --json title -q .title", "gh issue"),
+            ("cargo test --workspace -- --nocapture", "cargo test"),
+            ("cargo +nightly fmt --all", "cargo fmt"),
+            ("cargo clippy --all-targets -- -D warnings", "cargo clippy"),
+            ("go test ./internal/cli/ -run TestLogin -count=1", "go test"),
+            ("make -C services/api test", "make test"),
+            ("make -j4 build", "make build"),
+            // Package managers and their runners.
+            ("pnpm test", "pnpm test"),
+            ("pnpm run build", "pnpm run build"),
+            ("pnpm --filter @acme/api test", "pnpm test"),
+            (
+                "pnpm -F web exec vitest run src/app.test.ts",
+                "pnpm exec vitest",
+            ),
+            (
+                "pnpm exec vitest run test/login.test.ts",
+                "pnpm exec vitest",
+            ),
+            ("npx vitest run src/foo.test.ts", "npx vitest"),
+            ("npx -y prettier --write src", "npx prettier"),
+            ("npm run test:unit -- --watch=false", "npm run test:unit"),
+            ("npm --prefix web run lint", "npm run lint"),
+            (
+                "yarn workspace @acme/api test test/login.test.ts",
+                "yarn test",
+            ),
+            ("yarn test:e2e --project chromium", "yarn test:e2e"),
+            ("uv run pytest -x tests/test_api.py", "uv run pytest"),
+            (
+                "uv run --with rich python scripts/report.py",
+                "uv run python",
+            ),
+            ("python -m pytest -q tests/", "python -m pytest"),
+            ("python3 - <<'EOF'\nprint(1)\nEOF", "python3"),
+            ("python3 scripts/seed.py --count 10", "python3"),
+            (
+                "docker compose -f docker/dev.yml up -d db",
+                "docker compose up",
+            ),
+            (
+                "docker exec acme-db-1 psql -U acme -c 'select 1'",
+                "docker exec",
+            ),
+            ("biome check --write src", "biome check"),
+            // Programs without subcommands: the program alone.
+            ("vitest run src/foo.test.ts", "vitest"),
+            ("pytest -x tests/test_login.py::test_ok", "pytest"),
+            ("node -e 'console.log(1)'", "node"),
+            ("/usr/local/bin/rg -n 'fn main' src", "rg"),
+            ("./scripts/deploy.sh staging", "deploy.sh"),
+            // Chains: the simple command the matching rule matched, else
+            // the leading one (setup commands skipped).
+            ("cd apps/web && pnpm test 2>&1 | tail -30", "pnpm test"),
+            ("cargo build && cargo test", "cargo test"),
+            (
+                "export PATH=\"$HOME/.nvm/bin:$PATH\" && npx tsc --noEmit -p apps/api",
+                "npx tsc",
+            ),
+            ("echo '=== api' && git log --oneline | head -5", "git log"),
+            ("sleep 30 && gh run view 123 --log-failed", "gh run"),
+            ("set -e; source .venv/bin/activate; pytest", "pytest"),
+            (
+                "for f in a.ts b.ts; do npx biome check $f; done",
+                "npx biome",
+            ),
+            // A polling loop is named after its loop and condition.
+            ("until [ -f /tmp/done ]; do sleep 5; done", "until test"),
+            (
+                "until grep -q 'Test Files' /tmp/run.log; do sleep 10; done",
+                "until grep",
+            ),
+            (
+                "while pgrep -f vitest >/dev/null; do sleep 2; done",
+                "while pgrep",
+            ),
+            ("if [ -d node_modules ]; then yarn build; fi", "yarn build"),
+            ("cd /Users/alice/code/acme-api", "cd"),
+            // Secrets are redacted before storage; assignments never kept.
+            ("GITHUB_TOKEN=[REDACTED] gh api repos/acme/api", "gh api"),
+            (
+                "curl -H 'Authorization: Bearer [REDACTED]' https://x.test",
+                "curl",
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (command, key) in table {
+            let got = bash(command).1;
+            if got != *key {
+                wrong.push(format!("{command:?} → {got:?}, expected {key:?}"));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "wrong command keys:\n{}",
+            wrong.join("\n")
+        );
+    }
+
+    #[test]
+    fn a_classification_cache_gives_the_same_answers() {
+        let plain = ActivityRules::builtin();
+        let cached = plain.with_classification_cache();
+        let calls = [
+            ("Bash", None, None, Some("cd web && pnpm test 2>&1 | tail")),
+            ("Bash", None, Some("git"), Some("git status")),
+            (
+                "Bash",
+                None,
+                None,
+                Some("until grep -q ok log; do sleep 1; done"),
+            ),
+            ("Read", None, None, None),
+            ("mcp__github__get_issue", Some("github"), None, None),
+        ];
+        for _ in 0..2 {
+            for (tool_name, mcp_server, bash_command, command) in calls {
+                let call = ToolCall {
+                    tool_name,
+                    mcp_server,
+                    bash_command,
+                    command,
+                };
+                assert_eq!(cached.classify(&call), plain.classify(&call), "{call:?}");
+            }
+        }
     }
 
     #[test]

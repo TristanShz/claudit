@@ -21,7 +21,7 @@ use serde_json::json;
 #[derive(Debug, PartialEq)]
 struct Reports {
     tool_ranking: Vec<stats::tools::RankedCalls>,
-    bash_command_ranking: Vec<stats::tools::RankedCalls>,
+    command_ranking: stats::commands::CommandRanking,
     mcp_server_ranking: Vec<stats::tools::RankedCalls>,
     consumption: stats::consumption::Consumption,
     sessions: Vec<stats::sessions::SessionSummary>,
@@ -30,7 +30,6 @@ struct Reports {
     time_breakdown: stats::time::TimeBreakdown,
     time_coverage: stats::time::TimeCoverage,
     turn_times: Vec<stats::time::TurnTime>,
-    waiting_by_tool: Vec<stats::time::ToolWaiting>,
     skills: Vec<stats::skills::SkillStat>,
     subagents: Vec<stats::subagents::SubagentTypeStat>,
     subagent_runs: Vec<stats::subagents::SubagentRun>,
@@ -52,11 +51,13 @@ struct Reports {
     acme_total_cost: stats::cost::CostLine,
     acme_model_usage: stats::models::ModelsReport,
     acme_activity_breakdown: stats::activities::ActivityBreakdown,
+    acme_command_ranking: stats::commands::CommandRanking,
     session_a_turn_times: Vec<stats::time::TurnTime>,
     session_a_skill_invocations: Vec<stats::skills::SkillInvocation>,
     session_a_subagent_runs: Vec<stats::subagents::SubagentRun>,
     session_a_detail: Option<stats::session_detail::SessionDetail>,
     session_a_activities: stats::activities::ActivityBreakdown,
+    session_a_commands: stats::commands::CommandRanking,
     session_a_cost_by_turn: Vec<stats::cost::CostLine>,
     session_a_turns: Vec<stats::trace::TurnRow>,
     session_a_turn_traces: Vec<Option<stats::trace::TurnTrace>>,
@@ -83,7 +84,7 @@ fn reports(env: &TestEnv) -> Reports {
     };
     Reports {
         tool_ranking: env.tool_ranking(&all),
-        bash_command_ranking: env.bash_command_ranking(&all),
+        command_ranking: env.command_ranking(&all),
         mcp_server_ranking: env.mcp_server_ranking(&all),
         consumption: env.consumption(&all),
         sessions: env.sessions(&all),
@@ -92,7 +93,6 @@ fn reports(env: &TestEnv) -> Reports {
         time_breakdown: env.time_breakdown(&all),
         time_coverage: stats::time::time_coverage(&conn, &all).expect("time_coverage"),
         turn_times: env.turn_times(&all),
-        waiting_by_tool: env.waiting_by_tool(&all),
         skills: env.skills(&all),
         subagents: env.subagents(&all),
         subagent_runs: env.subagent_runs(&all),
@@ -116,6 +116,7 @@ fn reports(env: &TestEnv) -> Reports {
         acme_model_usage: stats::models::model_usage(&conn, &acme, prices).expect("model_usage"),
         acme_activity_breakdown: stats::activities::activity_breakdown(&conn, &acme, rules)
             .expect("activity_breakdown"),
+        acme_command_ranking: env.command_ranking(&acme),
         session_a_turn_times: stats::time::session_turn_times(&conn, SESSION_A)
             .expect("session_turn_times"),
         session_a_skill_invocations: stats::skills::session_skill_invocations(&conn, SESSION_A)
@@ -126,6 +127,13 @@ fn reports(env: &TestEnv) -> Reports {
             .expect("session_detail"),
         session_a_activities: stats::activities::session_activities(&conn, SESSION_A, rules)
             .expect("session_activities"),
+        session_a_commands: stats::commands::session_commands(
+            &conn,
+            SESSION_A,
+            rules,
+            stats::commands::CommandSort::Total,
+        )
+        .expect("session_commands"),
         session_a_cost_by_turn: stats::cost::session_cost_by_turn(&conn, SESSION_A, prices)
             .expect("session_cost_by_turn"),
         session_a_turns: stats::trace::session_turns(&conn, SESSION_A, rules, prices)
@@ -145,7 +153,7 @@ fn reports(env: &TestEnv) -> Reports {
 /// delivery, ingested over two runs.
 fn populate(env: &TestEnv) {
     env.drop_projects_fixture();
-    // Session A's hooks: turn times, waits, permission prompts, a skill and
+    // Session A's hooks: turn times, a permission prompt, a skill and
     // a subagent run, matching its transcripts.
     env.replay_session_a_hooks();
     env.hook_fixture("post_tool_use_bash.json");
@@ -179,7 +187,8 @@ fn reingest_on_a_populated_archive_yields_identical_reports() {
     assert_eq!(before.tool_ranking.len(), 4, "the archive is populated");
     assert!(before.consumption.sessions > 0, "transcripts were ingested");
     assert!(!before.turn_times.is_empty(), "turns were timed");
-    assert!(!before.waiting_by_tool.is_empty(), "waits were measured");
+    assert!(!before.command_ranking.commands.is_empty(), "Bash ran");
+    assert!(!before.session_a_commands.commands.is_empty());
     assert!(!before.skills.is_empty(), "skills were invoked");
     assert!(!before.subagent_runs.is_empty(), "subagents ran");
     assert!(

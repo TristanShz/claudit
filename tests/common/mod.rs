@@ -256,6 +256,14 @@ impl TestEnv {
         self.replay_hook_dir("activities");
     }
 
+    /// Replays the synthetic session `7a1e3c5b-…`
+    /// (`tests/fixtures/hooks/commands/`): vitest runs (one failed), git
+    /// and a build in `/Users/alice/code/web-app` on 2026-03-06, known only
+    /// from hooks.
+    pub fn replay_commands_session(&self) {
+        self.replay_hook_dir("commands");
+    }
+
     /// The synthetic trace session `c4e8a2f0-…` (see
     /// `tests/fixtures/hooks/README.md`): its transcript
     /// (`tests/fixtures/transcripts/trace`) and its hooks
@@ -349,10 +357,6 @@ impl TestEnv {
         stats::time::turn_times(&self.db(), filter).expect("turn_times")
     }
 
-    pub fn waiting_by_tool(&self, filter: &Filter) -> Vec<stats::time::ToolWaiting> {
-        stats::time::waiting_by_tool(&self.db(), filter).expect("waiting_by_tool")
-    }
-
     pub fn skills(&self, filter: &Filter) -> Vec<stats::skills::SkillStat> {
         stats::skills::skill_ranking(&self.db(), filter).expect("skill_ranking")
     }
@@ -374,8 +378,16 @@ impl TestEnv {
         stats::tools::tool_ranking(&self.db(), filter).expect("tool_ranking")
     }
 
-    pub fn bash_command_ranking(&self, filter: &Filter) -> Vec<stats::tools::RankedCalls> {
-        stats::tools::bash_command_ranking(&self.db(), filter).expect("bash_command_ranking")
+    /// Bash commands by command key, most runs first, classified with the
+    /// built-in activity rules.
+    pub fn command_ranking(&self, filter: &Filter) -> stats::commands::CommandRanking {
+        stats::commands::command_ranking(
+            &self.db(),
+            filter,
+            claudit::activities::ActivityRules::builtin(),
+            stats::commands::CommandSort::Calls,
+        )
+        .expect("command_ranking")
     }
 
     pub fn mcp_server_ranking(&self, filter: &Filter) -> Vec<stats::tools::RankedCalls> {

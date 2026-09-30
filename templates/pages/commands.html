@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}claudit · Commands{% endblock %}
+{% block content %}
+<section class="card" id="commands-section">
+  <h2>Bash commands{% if !table.rows.is_empty() && total != "–" %} <span class="muted">· {{ total }}</span>{% endif %}</h2>
+  <p class="muted small">Each Bash call is named after its program and subcommand (<code>pnpm exec vitest</code>, <code>cargo test</code>, <code>git status</code>): paths, files and other arguments are dropped. A line of several commands counts once, under its most significant command: the one its activity rule matched (tests before builds before git…), else the first that is not <code>cd</code>, <code>export</code>, <code>echo</code> or the like. Time is each run's execution time as timed by claudit's hooks. Waiting and polling (a line that opens with an <code>until</code> / <code>while</code> loop, or only sleeps) is hidden unless you show it: its time is spent waiting on something else. Click a column to sort.</p>
+  {% if table.rows.is_empty() %}
+  <p class="empty">No Bash call recorded for this filter.</p>
+  {% else %}
+  {% if !time_note.note.is_empty() %}<p class="muted small time-note">{{ time_note.note }}</p>{% endif %}
+  {% include "partials/command_table.html" %}
+  {% endif %}
+</section>
+{% endblock %}

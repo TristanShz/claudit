@@ -11,13 +11,14 @@
 #   activity = "Tests"          # the activity it assigns (any name)
 #   tools    = ["Bash"]         # tool names; `*` and `?` are wildcards
 #                               # (`mcp__*`, `mcp__github__*`)
-#   commands = ["git", "gh"]    # optional: the call's leading command (as in
-#                               # the Tools page's Bash table: `cd x &&` and
-#                               # `VAR=1` prefixes skipped); wildcards allowed
+#   commands = ["git", "gh"]    # optional: the call's leading command (its
+#                               # first simple command that is not `cd`,
+#                               # `export`, `echo`, `sleep`, … with `VAR=1`
+#                               # prefixes skipped); wildcards allowed
 #   pattern  = '^cargo\s+test'  # optional: a regex searched in each simple
 #                               # command of the Bash command line (split at
 #                               # `&&`, `||`, `;`, `|`, `&` and newlines, with
-#                               # `VAR=value` prefixes, `sudo`/`env`/`time`/
+#                               # `VAR=value` prefixes, shell keywords, `sudo`/`env`/`time`/
 #                               # `timeout N`/`nohup` wrappers removed and the
 #                               # program reduced to its file name); anchor
 #                               # with `^` for "the command starts with"
@@ -26,9 +27,19 @@
 #
 # Bump `version` (the date of the change) on every change.
 
-version = "2026-09-30"
+version = "2026-09-30.2"
 
 # ---- Shell commands (the order matters) -------------------------------------
+
+# Lines whose whole point is to wait: a polling loop (the line opens with
+# `until` / `while`, its leading command) or a bare `sleep` (a `sleep` only
+# leads a line of setup commands: `sleep 30 && gh run view` is Git).
+# The dashboard hides them from "Slowest" by default: their time is spent
+# waiting on something else (background tests, CI).
+[[rule]]
+activity = "Waiting & polling"
+tools = ["Bash"]
+commands = ["until", "while", "sleep"]
 
 [[rule]]
 activity = "Tests"

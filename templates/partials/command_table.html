@@ -1,0 +1,19 @@
+<div class="table-scroll">
+<table class="ranking commands">
+  <thead><tr><th>Command</th>{% for h in table.heads %}<th class="num">{% if h.href.is_empty() %}{{ h.label }}{% else %}<a class="sort{% if h.active %} sorted{% endif %}" href="{{ h.href }}"{% if h.active %} aria-sort="descending"{% endif %}>{{ h.label }}{% if h.active %} ▾{% endif %}</a>{% endif %}</th>{% endfor %}</tr></thead>
+  <tbody>
+    {% for c in table.rows %}
+    <tr>
+      <td class="name command" title="{{ c.command }} · {{ c.activity }}"><span class="swatch" style="background: var(--act-{{ c.color }})" aria-hidden="true"></span> <code>{{ c.command }}</code> <span class="muted small activity-name">{{ c.activity }}</span></td>
+      <td class="num"{% if c.timed_runs < c.runs %} title="{{ c.timed_runs }} timed by hooks"{% endif %}>{{ c.runs }}</td>
+      <td class="num"{% if c.share != "–" %} title="{{ c.share }} of Bash time"{% endif %}>{{ c.total }}</td>
+      <td class="num">{{ c.median }}</td>
+      <td class="num">{{ c.p95 }}</td>
+      <td class="num{% if c.failures > 0 %} failed{% endif %}">{% if c.failures > 0 %}{{ c.failures }}{% else %}–{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if !table.coverage.is_empty() %}<p class="muted small time-note">{{ table.coverage }}</p>{% endif %}
+{% if !table.hidden.is_empty() || !table.toggle_href.is_empty() %}<p class="muted small time-note hidden-note">{{ table.hidden }}{% if !table.toggle_href.is_empty() %} <a href="{{ table.toggle_href }}">{{ table.toggle_label }}</a>{% endif %}</p>{% endif %}

@@ -1,10 +1,10 @@
-//! Tool breakdowns (#6): failures, Bash leading commands, MCP servers and
+//! Tool breakdowns (#6): failures, Bash commands, MCP servers and
 //! duration percentiles.
 //!
 //! Seam under test: seam 1 only. Hook payloads (fixtures, varied through
 //! `hook_fixture_with`) go in through the hook entry point, `TestEnv::ingest`
 //! loads them, and assertions are made on the typed rankings of
-//! `claudit::stats::tools`.
+//! `claudit::stats::tools` and `claudit::stats::commands`.
 
 mod common;
 
@@ -145,12 +145,16 @@ fn bash_and_mcp_rankings_honour_the_date_range_and_project_filters() {
     };
     let names = |rows: Vec<RankedCalls>| rows.into_iter().map(|r| r.name).collect::<Vec<_>>();
 
-    assert_eq!(names(env.bash_command_ranking(&tuesday_in_acme)), ["cargo"]);
+    let commands = |filter: &Filter| {
+        env.command_ranking(filter)
+            .commands
+            .into_iter()
+            .map(|c| c.command)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(commands(&tuesday_in_acme), ["cargo test"]);
     assert_eq!(names(env.mcp_server_ranking(&tuesday_in_acme)), ["linear"]);
-    assert_eq!(
-        names(env.bash_command_ranking(&Filter::default())),
-        ["cargo", "git"]
-    );
+    assert_eq!(commands(&Filter::default()), ["cargo test", "git status"]);
 }
 
 fn mcp(env: &TestEnv, id: &str, tool_name: &str, duration_ms: u64) {
@@ -213,8 +217,10 @@ fn mcp_calls_are_grouped_by_server() {
     );
 }
 
+/// Each Bash line counts once, under its command key (see
+/// `stats::commands`); an empty line has none.
 #[test]
-fn bash_calls_are_ranked_by_leading_command() {
+fn bash_calls_are_ranked_by_command_key() {
     let env = TestEnv::new();
     let commands = [
         "git status",
@@ -239,21 +245,30 @@ fn bash_calls_are_ranked_by_leading_command() {
     read(&env, "toolu_read", 12);
     env.ingest();
 
-    let ranking = env.bash_command_ranking(&Filter::default());
+    let ranking = env.command_ranking(&Filter::default());
 
     let summary: Vec<_> = ranking
+        .commands
         .iter()
-        .map(|row| (row.name.as_str(), row.stats.calls, row.stats.failures))
+        .map(|c| (c.command.as_str(), c.stats.calls, c.stats.failures))
         .collect();
     assert_eq!(
         summary,
         [
-            ("cargo", 4, 0),
-            ("git", 4, 1),
-            ("pnpm", 3, 0),
+            ("cargo test", 2, 0),
+            ("cargo build", 1, 0),
+            ("cargo run", 1, 0),
             ("cat", 1, 0),
             ("cd", 1, 0),
-            ("npm", 1, 0),
+            ("git add", 1, 0),
+            ("git log", 1, 0),
+            ("git push", 1, 1),
+            ("git status", 1, 0),
+            ("npm install", 1, 0),
+            ("pnpm build", 1, 0),
+            ("pnpm dev", 1, 0),
+            ("pnpm test", 1, 0),
         ]
     );
+    assert_eq!(ranking.calls, 14, "the empty line has no command");
 }

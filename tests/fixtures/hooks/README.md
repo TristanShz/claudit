@@ -77,6 +77,24 @@ documents what each activity adds up to.
 | 12 | Bash `git commit -m "fix: flaky test"` | 300 | ok |
 | 13 | Bash `gh pr create --fill` | 1600 | ok |
 
+## `commands/`: session `7a1e3c5b-…`
+
+A synthetic session known only from hooks (no transcript), in
+`/Users/alice/code/web-app` on 2026-03-06, of seven completed Bash calls,
+numbered in arrival order with their receive times in `received_at.json`
+(`TestEnv::replay_commands_session`). It is not part of the default fixture
+archive; `tests/commands.rs` documents what each command key adds up to.
+
+| # | Call | `duration_ms` | Outcome |
+| --- | --- | --- | --- |
+| 01 | Bash `pnpm exec vitest run src/cart.test.ts` | 42000 | ok |
+| 02 | Bash `cd /Users/alice/code/web-app && pnpm exec vitest run` | 61000 | ok |
+| 03 | Bash `pnpm exec vitest run src/checkout.test.ts` | 38000 | failed |
+| 04 | Bash `git status --short` | 90 | ok |
+| 05 | Bash `git status` | 110 | ok |
+| 06 | Bash `git diff --stat` | 150 | ok |
+| 07 | Bash `pnpm run build` | 9000 | ok |
+
 ## `trace/`: session `c4e8a2f0-…`
 
 A synthetic session in `/Users/alice/code/acme-api` (branch

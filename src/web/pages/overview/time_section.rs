@@ -1,11 +1,11 @@
-//! "Where the time goes" and "Waiting on you, by tool" (overview).
+//! "Where the time goes" (overview).
 
 use serde::Serialize;
 
-use crate::stats::time::{SegmentKind, TimeBreakdown, ToolWaiting};
+use crate::stats::time::{SegmentKind, TimeBreakdown};
 use crate::web::format;
 
-/// Both cards of the time row.
+/// The time card.
 pub(in crate::web) struct TimeSection {
     /// False when no turn has both a start and an end yet.
     pub has_data: bool,
@@ -15,7 +15,6 @@ pub(in crate::web) struct TimeSection {
     /// `TimeChart` as script JSON, shared by the split bar and the daily
     /// columns.
     pub chart_json: String,
-    pub waiting: Vec<WaitingRow>,
 }
 
 /// One component of the split, for the legend.
@@ -26,14 +25,6 @@ pub(in crate::web) struct TimePart {
     pub value: String,
     /// e.g. `42%`.
     pub share: String,
-}
-
-/// A row of "Waiting on you, by tool".
-pub(in crate::web) struct WaitingRow {
-    pub name: String,
-    pub waiting: String,
-    pub calls_waited: u64,
-    pub permission_requests: u64,
 }
 
 #[derive(Serialize)]
@@ -59,7 +50,7 @@ struct ChartDay {
 }
 
 impl TimeSection {
-    pub fn build(breakdown: TimeBreakdown, waiting: Vec<ToolWaiting>) -> anyhow::Result<Self> {
+    pub fn build(breakdown: TimeBreakdown) -> anyhow::Result<Self> {
         let wall = breakdown.total.wall();
         let wall_ms = wall.num_milliseconds();
         let parts = SegmentKind::ALL
@@ -107,15 +98,6 @@ impl TimeSection {
             total: format::duration(wall),
             parts,
             chart_json: format::script_json(&chart)?,
-            waiting: waiting
-                .into_iter()
-                .map(|w| WaitingRow {
-                    waiting: format::duration(w.waiting),
-                    name: w.tool_name,
-                    calls_waited: w.calls_waited,
-                    permission_requests: w.permission_requests,
-                })
-                .collect(),
         })
     }
 }

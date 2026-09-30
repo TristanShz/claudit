@@ -3,8 +3,7 @@
 //! Seams under test (seam 1 of `tests/common`): hook fixtures replayed
 //! through `claudit::hook::run` with controlled receive times, fixture
 //! transcripts dropped in place, `claudit::ingest::run`, then assertions on
-//! the typed reports `stats::time::{time_breakdown, turn_times,
-//! waiting_by_tool}` only.
+//! the typed reports `stats::time::{time_breakdown, turn_times}` only.
 
 mod common;
 
@@ -236,27 +235,6 @@ fn the_breakdown_aggregates_turns_overall_and_per_day() {
 }
 
 #[test]
-fn waiting_is_reported_per_tool_with_its_permission_requests() {
-    let env = session_a();
-
-    let waiting = env.waiting_by_tool(&Filter::default());
-    let rows: Vec<(&str, Duration, u64)> = waiting
-        .iter()
-        .map(|w| (w.tool_name.as_str(), w.waiting, w.permission_requests))
-        .collect();
-    // Each call waits from its PreToolUse to its execution start; the
-    // subagent's Read waits too (hook latency), and counts here.
-    assert_eq!(
-        rows,
-        [
-            ("Bash", ms(11_800), 1),
-            ("Agent", ms(100), 0),
-            ("Read", ms(100), 0)
-        ]
-    );
-}
-
-#[test]
 fn pre_and_post_tool_use_pair_whichever_is_ingested_first() {
     let together = TestEnv::new();
     let post_first = TestEnv::new();
@@ -307,5 +285,4 @@ fn replaying_the_same_hooks_twice_changes_nothing() {
     env.ingest();
 
     assert_eq!(env.time_breakdown(&Filter::default()), before);
-    assert_eq!(env.waiting_by_tool(&Filter::default()).len(), 3);
 }

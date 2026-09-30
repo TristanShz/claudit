@@ -329,7 +329,7 @@ pub(super) struct ActivityRow {
 }
 
 /// The built-in activities, in palette order.
-const ACTIVITY_COLORS: [&str; 16] = [
+const ACTIVITY_COLORS: [&str; 17] = [
     "Tests",
     "Build & typecheck",
     "Lint & format",
@@ -344,6 +344,7 @@ const ACTIVITY_COLORS: [&str; 16] = [
     "Skills",
     "MCP",
     "Planning & todos",
+    crate::activities::WAITING,
     crate::activities::OTHER_SHELL,
     crate::activities::OTHER,
 ];
@@ -358,7 +359,7 @@ pub(super) fn activity_color(name: &str) -> usize {
             let hash = name
                 .bytes()
                 .fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(b as usize));
-            hash % (ACTIVITY_COLORS.len() - 2)
+            hash % (ACTIVITY_COLORS.len() - 3)
         })
 }
 
