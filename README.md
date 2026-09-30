@@ -95,91 +95,29 @@ inactivity for sessions that never ended cleanly).
 - There is no encryption at rest: the archive is as private as your user
   account.
 
-## Install
+## Quick install
 
-claudit targets macOS (Apple silicon and Intel). Linux is expected to work
-but is not a release target yet. Windows is not supported.
-
-### Prebuilt binary (macOS)
-
-Download the archive for your Mac from the
-[latest release](https://github.com/TristanShz/claudit/releases/latest)
-(`aarch64-apple-darwin` for Apple silicon, `x86_64-apple-darwin` for Intel),
-check it and put the binary on your `PATH`:
+macOS (Apple silicon or Intel):
 
 ```sh
 VERSION=v0.1.0
-TARGET=aarch64-apple-darwin   # or x86_64-apple-darwin
-curl -LO "https://github.com/TristanShz/claudit/releases/download/$VERSION/claudit-$VERSION-$TARGET.tar.gz"
-curl -LO "https://github.com/TristanShz/claudit/releases/download/$VERSION/claudit-$VERSION-$TARGET.tar.gz.sha256"
-shasum -a 256 -c "claudit-$VERSION-$TARGET.tar.gz.sha256"
-tar -xzf "claudit-$VERSION-$TARGET.tar.gz"
-mkdir -p ~/.local/bin && mv "claudit-$VERSION-$TARGET/claudit" ~/.local/bin/
+TARGET="$([ "$(uname -m)" = arm64 ] && echo aarch64 || echo x86_64)-apple-darwin"
+mkdir -p ~/.local/bin
+curl -fsSL "https://github.com/TristanShz/claudit/releases/download/$VERSION/claudit-$VERSION-$TARGET.tar.gz" \
+  | tar -xz --strip-components=1 -C ~/.local/bin "claudit-$VERSION-$TARGET/claudit"
+
+claudit install   # add claudit's hooks to ~/.claude/settings.json (a backup is written first)
+claudit serve     # open http://127.0.0.1:8421
 ```
 
-The binaries are not notarized. Downloading with `curl` as above avoids
-Gatekeeper's quarantine; if you downloaded through a browser, run
-`xattr -d com.apple.quarantine ~/.local/bin/claudit` once.
+Make sure `~/.local/bin` is on your `PATH`. With Rust installed,
+`cargo install --locked --git https://github.com/TristanShz/claudit` works too.
 
-### With Cargo
-
-With Rust 1.88 or newer:
-
-```sh
-cargo install --locked --git https://github.com/TristanShz/claudit
-```
-
-This installs `claudit` into `~/.cargo/bin`. SQLite is bundled; no system
-library is needed.
-
-### Wire it into Claude Code
-
-```sh
-claudit install
-```
-
-`claudit install` edits Claude Code's user settings file
-(`~/.claude/settings.json`, or `$CLAUDE_CONFIG_DIR/settings.json`):
-
-- it first copies the current file to
-  `settings.json.claudit-backup-<timestamp>` next to it (mode `0600`, never
-  overwritten);
-- it appends one hook group per recorded event, running
-  `<absolute path to claudit> hook` with `"async": true`. Your existing hooks
-  are neither modified nor reordered, and any other key is left alone;
-- it raises `cleanupPeriodDays` to 365 if it is lower (or unset: Claude Code
-  defaults to 30), so a transcript is never deleted before claudit had a
-  chance to ingest it. The previous value, and which hook entries install
-  created, are recorded in `~/.claudit/install-state.json`.
-
-It is idempotent: running it again (for example after an upgrade, or after
-moving the binary) replaces claudit's entries rather than duplicating them.
-The hook command holds the binary's absolute path, so run `claudit install`
-again whenever you move the binary.
-
-New Claude Code sessions are recorded from then on. Open the dashboard with:
-
-```sh
-claudit serve              # http://127.0.0.1:8421
-claudit serve --port 9000  # another port (still 127.0.0.1 only)
-```
-
-The first `serve` (or the first hook-triggered ingest) backfills every
-transcript on disk, which can take a moment on a large history.
-
-### Uninstall
-
-```sh
-claudit uninstall
-```
-
-This removes exactly the hook entries claudit added (after another
-timestamped backup) and restores `cleanupPeriodDays` to its previous value,
-unless you changed it yourself since. An install followed by an uninstall
-leaves `settings.json` semantically identical to the original, down to hook
-lists you had left empty. Your archive
-is kept: delete `~/.claudit` to remove it, and the binary
-(`cargo uninstall claudit`, or delete it) to finish.
+New Claude Code sessions are recorded from then on, and the first ingest
+imports the transcripts already on disk. `claudit install` also raises
+`cleanupPeriodDays` to 365 so transcripts are kept long enough; run it again
+if you move the binary. `claudit uninstall` removes exactly what install
+added and keeps your archive in `~/.claudit`.
 
 ## Commands
 
