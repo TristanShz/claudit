@@ -21,6 +21,21 @@ migrates the archive automatically.
   wins when both sources saw a call, in any ingest order. Tool result
   content is never stored. Run `claudit reingest` to backfill existing
   archives.
+- **Models**: an overview block and a `/models` page with, per model, the
+  sessions that used it, API responses, tokens, cache-read share and
+  API-equivalent cost, its share of all tokens and cost, and the split
+  between the main thread and subagents
+  (`stats::models::model_usage`).
+- **Activities**: what Claude's tools spend their time on. Every tool call
+  is classified (tests, build & typecheck, lint & format, git & GitHub,
+  dependencies, run & scripts, search, read and edit files, web, subagents,
+  skills, MCP, planning) by versioned built-in rules
+  (`activities/rules.toml`) at query time, so rule changes apply to the
+  whole history. Shown as an overview section, an `/activities` page with
+  each activity's top commands and a daily chart, and a panel on the
+  session page (`stats::activities`). Add or override rules in
+  `$CLAUDIT_HOME/activities.toml`; an invalid file is ignored and reported
+  in a banner.
 
 ## [0.1.0] - Unreleased
 

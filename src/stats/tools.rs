@@ -147,27 +147,40 @@ fn rank_where(
 
     let mut ranking: Vec<RankedCalls> = groups
         .into_iter()
-        .map(|(name, mut group)| {
-            group.durations.sort_unstable();
-            RankedCalls {
-                name,
-                stats: CallStats {
-                    calls: group.calls,
-                    failures: group.failures,
-                    total_duration_ms: group.durations.iter().sum(),
-                    median_duration_ms: nearest_rank(&group.durations, 50),
-                    p95_duration_ms: nearest_rank(&group.durations, 95),
-                    estimated_duration_calls: group.estimated,
-                },
-            }
+        .map(|(name, group)| {
+            let mut stats = CallStats::of(group.calls, group.failures, group.durations);
+            stats.estimated_duration_calls = group.estimated;
+            RankedCalls { name, stats }
         })
         .collect();
+    sort_ranking(&mut ranking);
+    Ok(ranking)
+}
+
+impl CallStats {
+    /// The stats of `calls` calls, `failures` of them failed, of which those
+    /// reporting a duration took `durations` (any order).
+    pub(super) fn of(calls: u64, failures: u64, mut durations: Vec<u64>) -> Self {
+        durations.sort_unstable();
+        CallStats {
+            calls,
+            failures,
+            total_duration_ms: durations.iter().sum(),
+            median_duration_ms: nearest_rank(&durations, 50),
+            p95_duration_ms: nearest_rank(&durations, 95),
+            estimated_duration_calls: 0,
+        }
+    }
+}
+
+/// The ranking order: call count, then total duration (both descending),
+/// then name.
+pub(super) fn sort_ranking(ranking: &mut [RankedCalls]) {
     ranking.sort_by(|a, b| {
         (b.stats.calls, b.stats.total_duration_ms)
             .cmp(&(a.stats.calls, a.stats.total_duration_ms))
             .then_with(|| a.name.cmp(&b.name))
     });
-    Ok(ranking)
 }
 
 /// The `percentile`-th nearest-rank percentile of ascending `sorted`.

@@ -7,7 +7,9 @@
 {% else %}
 {% include "sections/kpis.html" %}
 {% include "sections/time.html" %}
+{% include "sections/activities.html" %}
 {% include "sections/rankings.html" %}
+{% include "sections/models.html" %}
 <section class="card" id="sessions-section">
   <h2>Sessions <a class="all-link" href="/sessions{{ frame.query }}">All{% if more_sessions > 0 %} ({{ more_sessions }} more){% endif %} →</a></h2>
   {% include "sections/session_table.html" %}

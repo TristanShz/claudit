@@ -1,0 +1,19 @@
+<div class="table-scroll">
+<table class="ranking models">
+  <thead><tr><th>Model</th><th>Share of tokens</th><th class="num">Tokens</th><th class="num">Cache reads</th><th class="num">Cost</th><th class="num">Of cost</th><th class="num">Sessions</th><th class="num">Responses</th></tr></thead>
+  <tbody>
+    {% for m in models %}
+    <tr>
+      <td class="name" title="{{ m.model }}">{{ m.model }}</td>
+      <td class="bar-cell"><div class="share-bar" role="img" aria-label="{{ m.token_share }} of tokens"><span style="width: {{ m.token_pct }}%"></span></div></td>
+      <td class="num">{{ m.tokens }} <span class="muted small">{{ m.token_share }}</span></td>
+      <td class="num">{{ m.cache_read_share }}</td>
+      <td class="num">{{ m.cost }}</td>
+      <td class="num">{{ m.cost_share }}</td>
+      <td class="num">{{ m.sessions }}</td>
+      <td class="num">{{ m.api_messages }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>

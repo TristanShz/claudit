@@ -67,9 +67,11 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
                 "kpis-section",
                 "time-section",
                 "waiting-section",
+                "activities-section",
                 "tools-section",
                 "skills-section",
                 "subagents-section",
+                "models-section",
                 "sessions-section",
                 "ingest-warning",
             ][..],
@@ -82,8 +84,18 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
             "/tools",
             &["tools-section", "bash-section", "mcp-section"][..],
         ),
+        (
+            "/activities",
+            &[
+                "activities-section",
+                "activities-daily-section",
+                "activities-data",
+                "activity-details",
+            ][..],
+        ),
         ("/skills", &["skills-section"][..]),
         ("/subagents", &["subagents-section", "runs-section"][..]),
+        ("/models", &["models-section", "models-threads-section"][..]),
         ("/sessions", &["sessions-section"][..]),
         (
             "/sessions/8d0c5a3e-1b2f-4c6d-9e7a-0f1b2c3d4e5f?branch=main",
@@ -92,6 +104,7 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
                 "session-kpis",
                 "timeline-section",
                 "timeline-data",
+                "session-activities-section",
                 "session-tools-section",
                 "session-skills-subagents-section",
             ][..],
@@ -102,4 +115,21 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
     }
     let (status, _) = get(&env, "/sessions/00000000-0000-0000-0000-000000000000").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn an_invalid_activity_rules_file_shows_a_banner() {
+    let env = TestEnv::new();
+    env.populate_fixture_archive();
+    env.ingest();
+    std::fs::write(
+        env.paths.activity_rules_file(),
+        "[[rule]]\nactivity = \"Broken\"\n",
+    )
+    .unwrap();
+
+    for uri in ["/", "/activities"] {
+        let (status, body) = get(&env, uri).await;
+        assert_sections(uri, status, &body, &["activity-rules-warning"]);
+    }
 }

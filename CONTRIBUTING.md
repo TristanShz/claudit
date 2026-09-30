@@ -79,6 +79,9 @@ Fixtures live in `tests/fixtures/`:
   (e.g. `post_tool_use_bash.json`);
 - `transcripts/projects/…`: a mirror of `~/.claude/projects`, including a
   subagent transcript and its `.meta.json`;
+- `hooks/activities/`: a synthetic hook-only session of test, build, git and
+  edit calls for `tests/activities.rs` (replayed by
+  `TestEnv::replay_activities_session`, outside the default fixture archive);
 - `transcripts/cost/…`: transcripts for cost tests, kept out of `projects/`
   so the totals documented for `projects/` stay valid;
 - `transcripts/tool_calls/…`: a backfilled session for tool calls read from
@@ -182,6 +185,10 @@ A derived `meta` key belongs in `DERIVED_META_KEYS`.
 - `pricing/prices.toml`: update `version` (the date prices were read) and
   `source`; prices have at most 6 decimals. Add aliases rather than fuzzy
   matching.
+- `activities/rules.toml`: bump `version` (the date of the change); order
+  matters (first match wins, so specific shell rules go before catch-alls
+  like "Run & scripts"). Add the commands you meant to cover to the table
+  in the unit tests of `src/activities.rs`.
 
 ## Screenshots
 

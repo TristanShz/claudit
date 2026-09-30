@@ -1,5 +1,5 @@
 //! The session page (`/sessions/{id}`): header, KPIs, turn timeline, the
-//! session's tools, skills and subagents.
+//! session's activities, tools, skills and subagents.
 
 use std::sync::Arc;
 
@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::db;
 use crate::pricing::PriceTable;
+use crate::stats::activities;
 use crate::stats::session_detail::{self, SessionDetail};
 use crate::stats::skills::SkillTrigger;
 use crate::stats::time::{SegmentKind, TimeSplit, TurnTime};
@@ -19,7 +20,7 @@ use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
 use crate::web::frame::Frame;
-use crate::web::rows::{self, RunRow, ToolRow};
+use crate::web::rows::{self, ActivityRow, RunRow, ToolRow};
 
 #[derive(Template)]
 #[template(path = "pages/session.html")]
@@ -31,6 +32,7 @@ struct SessionPage {
     /// CSS height of the timeline, from its number of lanes.
     timeline_height: usize,
     turns: usize,
+    activities: Vec<ActivityRow>,
     tools: Vec<ToolRow>,
     skills: Vec<SkillUse>,
     subagents: Vec<RunRow>,
@@ -247,6 +249,11 @@ pub(in crate::web) async fn handler(
         let path = format!("/sessions/{}", detail.session_id);
         let frame = Frame::load(&conn, &state, filters, &path, false)?;
         let turns = detail.turns.len();
+        let activities = rows::activity_rows(&activities::session_activities(
+            &conn,
+            &detail.session_id,
+            &frame.rules,
+        )?);
         Ok(Some(SessionPage {
             frame,
             header: header(&detail),
@@ -254,6 +261,7 @@ pub(in crate::web) async fn handler(
             timeline_json: format::script_json(&timeline(&detail.turns))?,
             timeline_height: 60 + 46 * turns.max(1),
             turns,
+            activities,
             skills: detail
                 .skills
                 .iter()

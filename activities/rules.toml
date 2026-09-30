@@ -1,0 +1,182 @@
+# What a tool call was for: the built-in activity rules, compiled into
+# claudit (`claudit::activities::ActivityRules::builtin`). Calls are
+# classified at query time, so changing a rule here (and rebuilding), or in
+# `$CLAUDIT_HOME/activities.toml`, reclassifies the whole archive without
+# re-ingesting.
+#
+# Rules are tried in order and the first match wins. A call no rule matches
+# is "Other shell" (a Bash call) or "Other" (any other tool).
+#
+# Each `[[rule]]` has:
+#   activity = "Tests"          # the activity it assigns (any name)
+#   tools    = ["Bash"]         # tool names; `*` and `?` are wildcards
+#                               # (`mcp__*`, `mcp__github__*`)
+#   commands = ["git", "gh"]    # optional: the call's leading command (as in
+#                               # the Tools page's Bash table: `cd x &&` and
+#                               # `VAR=1` prefixes skipped); wildcards allowed
+#   pattern  = '^cargo\s+test'  # optional: a regex searched in each simple
+#                               # command of the Bash command line (split at
+#                               # `&&`, `||`, `;`, `|`, `&` and newlines, with
+#                               # `VAR=value` prefixes, `sudo`/`env`/`time`/
+#                               # `timeout N`/`nohup` wrappers removed and the
+#                               # program reduced to its file name); anchor
+#                               # with `^` for "the command starts with"
+# A rule matches when the tool matches AND, if given, the leading command
+# matches AND, if given, the pattern matches.
+#
+# Bump `version` (the date of the change) on every change.
+
+version = "2026-09-30"
+
+# ---- Shell commands (the order matters) -------------------------------------
+
+[[rule]]
+activity = "Tests"
+tools = ["Bash"]
+pattern = '''(?x)^(?:
+    cargo \s+ (?:test|nextest|t)\b
+  | cargo-nextest\b
+  | (?:npm|pnpm|yarn|bun) (?:\s+--?[\w-]+(?:[=\s][^\s-]\S*)?)*? \s+ (?:run\s+)? test(?::\S*)?\b
+  | (?:npx|bunx|yarn|pnpm\s+(?:exec|dlx)|npm\s+exec|yarn\s+exec) \s+ (?:jest|vitest|mocha|ava|tap|karma|cypress\s+run|playwright\s+test|playwright)\b
+  | (?:jest|vitest|mocha|pytest|py\.test|tox|nox|bats|rspec|phpunit|pest|ctest)\b
+  | playwright \s+ test\b
+  | (?:python3?|py) (?:\.\d+)? \s+ -m \s+ (?:pytest|unittest|nose2?)\b
+  | (?:uv|poetry|pdm|hatch|pipenv) \s+ run \s+ (?:pytest|python3?\s+-m\s+(?:pytest|unittest))\b
+  | go \s+ test\b
+  | mix \s+ test\b
+  | (?:bundle\s+exec\s+)? (?:rspec|rake\s+(?:test|spec))\b
+  | dotnet \s+ test\b
+  | (?:mvn|mvnw|gradle|gradlew) \b .* \btest
+  | (?:make|just) \b [^|;&]* \btest
+  | deno \s+ test\b
+  | swift \s+ test\b
+  | zig \s+ build \s+ test\b
+)'''
+
+[[rule]]
+activity = "Lint & format"
+tools = ["Bash"]
+pattern = '''(?x)^(?:
+    cargo \s+ (?:clippy|fmt)\b
+  | (?:rustfmt|clippy-driver|eslint|prettier|biome|oxlint|ruff|black|isort|flake8|pylint|golangci-lint|gofmt|goimports|staticcheck|rubocop|standardrb|swiftlint|swiftformat|ktlint|shellcheck|shfmt|stylelint|markdownlint|clang-format|pre-commit|lefthook)\b
+  | go \s+ (?:fmt|vet)\b
+  | (?:npm|pnpm|yarn|bun) \s+ (?:run\s+)? (?:lint|format|fmt|prettier|eslint|check:lint)(?::\S*)?\b
+  | (?:npx|bunx|yarn|pnpm\s+(?:exec|dlx)) \s+ (?:eslint|prettier|biome|oxlint|stylelint|tslint)\b
+  | (?:mix\s+format|dotnet\s+format)\b
+  | (?:make|just) \s+ (?:lint|fmt|format|check-format)\S*
+)'''
+
+[[rule]]
+activity = "Build & typecheck"
+tools = ["Bash"]
+pattern = '''(?x)^(?:
+    cargo \s+ (?:build|check|b|c|doc)\b
+  | (?:tsc|vue-tsc|svelte-check|mypy|pyright|xcodebuild|cmake|ninja|webpack|esbuild|rollup|rustc|gcc|g\+\+|clang|clang\+\+|javac|swiftc|make)\b
+  | (?:npm|pnpm|yarn|bun) \s+ (?:run\s+)? (?:build|typecheck|type-check|tsc|compile|check)(?::\S*)?\b
+  | (?:npx|bunx|yarn|pnpm\s+(?:exec|dlx)) \s+ (?:tsc|vue-tsc|svelte-check|vite\s+build|next\s+build|webpack|esbuild|rollup)\b
+  | (?:go|swift|zig|dotnet) \s+ build\b
+  | (?:vite|next|nuxt|astro|remix|turbo|nx) \s+ (?:run\s+)? build\b
+  | (?:mvn|mvnw) \b .* \b(?:compile|package|verify)\b
+  | (?:gradle|gradlew) \b .* \b(?:build|assemble|compile\w*)\b
+  | just \s+ build\b
+  | mix \s+ compile\b
+)'''
+
+[[rule]]
+activity = "Git & GitHub"
+tools = ["Bash"]
+commands = ["git", "gh", "glab", "hub", "tig", "lazygit"]
+
+[[rule]]
+activity = "Dependencies"
+tools = ["Bash"]
+pattern = '''(?x)^(?:
+    (?:npm|pnpm|yarn|bun) \s+ (?:install|i|ci|add|remove|rm|uninstall|un|update|upgrade|up|outdated|dedupe|audit|link)\b
+  | (?:pnpm|yarn|bun) \s* $
+  | cargo \s+ (?:add|remove|rm|update|install|fetch|upgrade|tree|vendor)\b
+  | (?:pip|pip3|pipx) \s+ (?:install|uninstall|freeze|list)\b
+  | (?:python3?) \s+ -m \s+ pip\b
+  | uv \s+ (?:add|remove|sync|lock|pip|venv|tool\s+install)\b
+  | (?:poetry|pdm|pipenv) \s+ (?:add|remove|install|lock|update|sync)\b
+  | (?:brew|apt|apt-get|dnf|yum|pacman|port|nix-env|asdf|mise|rustup) \b
+  | go \s+ (?:get|mod|install)\b
+  | (?:gem\s+install|bundle(?:\s+(?:install|update|add))?\s*$|bundle\s+(?:install|update|add)\b)
+  | composer \s+ (?:install|require|update|remove)\b
+  | mix \s+ deps\b
+  | dotnet \s+ (?:add|restore)\b
+  | pod \s+ (?:install|update)\b
+  | swift \s+ package\b
+)'''
+
+[[rule]]
+activity = "Search code"
+tools = ["Bash"]
+commands = ["rg", "grep", "egrep", "fgrep", "ag", "ack", "find", "fd", "ls", "tree", "locate", "which", "type", "du"]
+
+[[rule]]
+activity = "Read files"
+tools = ["Bash"]
+commands = ["cat", "head", "tail", "less", "more", "bat", "wc", "stat", "file", "xxd", "hexdump", "jq", "diff"]
+
+[[rule]]
+activity = "Read files"
+tools = ["Bash"]
+pattern = '^sed\s+(?:-\w*n\w*\b|--quiet|--silent)'
+
+[[rule]]
+activity = "Edit files"
+tools = ["Bash"]
+pattern = '^(?:sed\s+(?:\S+\s+)*?-i|perl\s+-\w*i|patch|tee|mv|cp|rm|mkdir|rmdir|touch|chmod|ln)\b'
+
+[[rule]]
+activity = "Web"
+tools = ["Bash"]
+commands = ["curl", "wget", "http", "https", "xh"]
+
+[[rule]]
+activity = "Run & scripts"
+tools = ["Bash"]
+pattern = '''(?x)^(?:
+    (?:npm|pnpm|yarn|bun) \s+ (?:run|start|dev|serve|preview|exec|dlx|x)\b
+  | (?:npx|bunx|node|deno|tsx|ts-node|python3?|py|ruby|php|perl|java|kotlin|lua|Rscript|osascript|iex|elixir|docker|docker-compose|podman|kubectl|terraform|open)\b
+  | cargo \s+ (?:run|r)\b
+  | (?:go|dotnet|swift|mix) \s+ run\b
+  | (?:uv|poetry|pdm|pipenv|hatch|bundle) \s+ (?:run|exec)\b
+  | (?:ba|z)?sh \s+ \S+
+  | \S+\.(?:sh|py|js|mjs|ts|rb|pl)\b
+  | (?:make|just) \s+ (?:run|dev|start|serve)\b
+)'''
+
+# ---- Tools ------------------------------------------------------------------
+
+[[rule]]
+activity = "Search code"
+tools = ["Grep", "Glob", "LS"]
+
+[[rule]]
+activity = "Read files"
+tools = ["Read", "NotebookRead"]
+
+[[rule]]
+activity = "Edit files"
+tools = ["Edit", "MultiEdit", "Write", "NotebookEdit"]
+
+[[rule]]
+activity = "Web"
+tools = ["WebFetch", "WebSearch"]
+
+[[rule]]
+activity = "Subagents"
+tools = ["Agent", "Task"]
+
+[[rule]]
+activity = "Skills"
+tools = ["Skill"]
+
+[[rule]]
+activity = "MCP"
+tools = ["mcp__*"]
+
+[[rule]]
+activity = "Planning & todos"
+tools = ["Todo*", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "EnterPlanMode", "ExitPlanMode", "AskUserQuestion"]

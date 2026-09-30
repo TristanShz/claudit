@@ -9,11 +9,20 @@ SQLite archive and serves a local dashboard to analyze them after the fact:
   Claude waiting on you (permission prompts), subagents;
 - **tools**: call counts, median and p95 durations, failure rates, broken
   down by Bash command (`git`, `cargo`, …) and by MCP server;
+- **activities**: what the tools spend their time on (running tests,
+  building, linting, git, installing dependencies, searching, reading and
+  editing files, the web, subagents, MCP, …), with time, calls, failure
+  rate, median and p95 per activity, its top commands (`cargo test`,
+  `pnpm test`), a daily chart and a per-session breakdown. The rules are
+  yours to extend (see [Activities](#activities));
 - **skills**, split by who triggered them (you typing `/skill`, or Claude
   calling the Skill tool), with their attributed time and tokens;
 - **subagents** by type, with duration, tool calls, model and tokens;
 - **tokens** (input, output, cache write, cache read) and an
-  **API-equivalent cost** per session, model, skill and day.
+  **API-equivalent cost** per session, model, skill and day;
+- **models**: sessions, API responses, tokens, cache-read share and cost per
+  model, with its share of all tokens and cost, split between the main
+  thread and subagents.
 
 It runs entirely on your machine: no account, no telemetry, no network.
 
@@ -136,7 +145,7 @@ added and keeps your archive in `~/.claudit`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `install-state.json`, `ingest.lock`, `ingest.pending`. |
+| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `install-state.json`, `ingest.lock`, `ingest.pending`, and your optional `activities.toml`. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's configuration directory: `settings.json` and the `projects/` transcripts. Set it the same way you set it for Claude Code. |
 
 Hooks inherit Claude Code's environment, so a `CLAUDIT_HOME` set in the
@@ -149,6 +158,62 @@ Everything that fails inside the hook or a background ingest is appended to
 that is not valid JSON is logged and archived as raw text (redacted) instead
 of being dropped. Transcript lines of an unknown shape are skipped, counted
 and logged; the dashboard shows a banner when there are any.
+
+## Activities
+
+Every tool call is assigned an **activity** by an ordered list of rules: the
+first rule that matches wins, and a call no rule matches is *Other shell*
+(Bash) or *Other*. The built-in rules
+([`activities/rules.toml`](activities/rules.toml)) cover tests (`cargo
+test`, `pnpm test`, `pytest`, `go test`, `npx vitest`, …), build and
+typecheck, lint and format, git and GitHub, dependencies, running scripts,
+searching, reading and editing files, the web, subagents, skills, MCP (by
+server) and planning tools. Calls are classified when a page is shown, so
+changing the rules reclassifies your whole history, without a reingest.
+
+To add activities or reclassify calls, create
+`$CLAUDIT_HOME/activities.toml` (`~/.claudit/activities.toml`) in the same
+format. Your rules are tried **before** the built-in ones:
+
+```toml
+version = "1"              # optional, shown on the Activities page
+
+# Your end-to-end suite gets its own activity.
+[[rule]]
+activity = "E2E tests"
+tools = ["Bash"]
+pattern = '^(?:pnpm|npm)\s+(?:run\s+)?e2e\b'
+
+# Count `cargo clippy` as building rather than linting.
+[[rule]]
+activity = "Build & typecheck"
+tools = ["Bash"]
+commands = ["cargo"]
+pattern = '^cargo\s+clippy\b'
+
+# One MCP server as an activity of its own.
+[[rule]]
+activity = "Browser"
+tools = ["mcp__claude-in-chrome__*"]
+```
+
+A rule has:
+
+| Key | Required | Matches |
+| --- | --- | --- |
+| `activity` | yes | The activity name it assigns (a new one or a built-in one). |
+| `tools` | yes | Tool names; `*` and `?` are wildcards (`mcp__*`). |
+| `commands` | no | The Bash call's leading command, as on the Tools page (`cd web && pnpm test` → `pnpm`); wildcards allowed. |
+| `pattern` | no | A regular expression ([Rust syntax](https://docs.rs/regex/latest/regex/#syntax)) searched in each simple command of the Bash command line: the line is split at `&&`, `\|\|`, `;`, `\|`, `&` and newlines (outside quotes, here-documents skipped), `VAR=value` prefixes and `sudo`/`env`/`time`/`timeout N`/`nohup` wrappers are removed, and the program is reduced to its file name (`./gradlew test` → `gradlew test`). Start it with `^` to mean "a command that starts with". |
+
+A rule matches when the tool matches and, when given, the leading command
+and the pattern match too. If the file cannot be read or is invalid, it is
+ignored (the built-in rules still apply), the error is logged to
+`logs/claudit.log`, and the dashboard shows a banner naming the problem.
+
+Time is each call's own execution time (`duration_ms`), summed: parallel
+calls add up, and calls made inside a subagent count in their activity as
+well as in the Agent call's *Subagents* time.
 
 ## Querying the archive with SQL
 
