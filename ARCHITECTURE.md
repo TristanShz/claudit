@@ -57,6 +57,7 @@ flowchart LR
 | `src/logfile.rs` | The error log (`logs/claudit.log`), redacted, one line per error. |
 | `src/spool.rs` | `SpoolRecord` and the append-only per-session spool files. |
 | `src/hook.rs` | `claudit hook`: `hook::run(paths, clock, spawner, stdin)`; `IngestSpawner` / `DetachedIngest`. |
+| `src/update.rs` | `claudit update`: finds the latest release from GitHub's `/releases/latest` redirect, downloads and SHA-256-checks its archive with `curl` / `shasum` / `tar`, renames the new binary over the running one. |
 | `src/install.rs` | `claudit install` / `uninstall`: pure `install` / `uninstall` over the settings JSON, wrapped by `install_settings` / `uninstall_settings` (backup, atomic write, state file). |
 | `src/db/` | `db::open` (WAL, `synchronous=NORMAL`, 10 s busy timeout, owner-only files) and the migration runner. `build.rs` generates the migration list from `migrations/*.sql`. |
 | `src/redact.rs` | `sanitize_hook_payload` (drop outputs, redact) and `redact_str`, over `redaction/patterns.toml`. |

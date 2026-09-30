@@ -89,7 +89,8 @@ inactivity for sessions that never ended cleanly).
   the settings backups `claudit install` writes.
 - **Localhost only.** `claudit serve` binds to `127.0.0.1`; there is no option
   to listen on another interface.
-- **No network.** claudit makes no outgoing connections. The dashboard's
+- **No network.** claudit makes no outgoing connections, except
+  `claudit update` when you run it (to github.com only). The dashboard's
   JavaScript (htmx, ECharts) and CSS are embedded in the binary; nothing is
   loaded from a CDN.
 - There is no encryption at rest: the archive is as private as your user
@@ -100,7 +101,8 @@ inactivity for sessions that never ended cleanly).
 | Command | What it does |
 | --- | --- |
 | `claudit install` | Adds claudit's hooks to Claude Code's user settings. |
-| `claudit uninstall` | Removes them and restores `cleanupPeriodDays`. |
+| `claudit uninstall` | Removes them and restores `cleanupPeriodDays`. Your recorded data in `~/.claudit` is kept. |
+| `claudit update [--check]` | Downloads the latest release from GitHub, checks its SHA-256 and replaces the binary in place (`--check` only reports whether one is available). For a binary installed with `cargo install`, it prints the `cargo` command to run instead. |
 | `claudit serve [--port N]` | Catches up on pending ingestion, then serves the dashboard on `127.0.0.1:N` (default 8421) until Ctrl-C. |
 | `claudit ingest` | Loads new spooled events and transcripts into the archive. Runs automatically after each turn; safe to run by hand at any time (it is incremental, deduplicated and exits at once if another ingest is running). |
 | `claudit reingest` | Rebuilds every derived table from the archived hook events plus the transcripts still on disk, re-applying the current redaction patterns. After an upgrade that derives more from the archive (e.g. tool calls from transcripts), the next ingest runs it once by itself; run it by hand after an upgrade that changes the parser or the patterns. |

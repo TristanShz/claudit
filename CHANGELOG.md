@@ -10,6 +10,15 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- `claudit update`: replaces the binary with the latest GitHub release
+  (found from the `/releases/latest` redirect, SHA-256 checked, renamed over
+  the running binary). `--check` only reports whether a newer release
+  exists. A binary installed with `cargo install` is left alone, with the
+  `cargo` command to run instead. This is the only command that uses the
+  network, and only when you run it.
+
 ### Changed
 
 - The README is now a short quick start; the details (commands, what is

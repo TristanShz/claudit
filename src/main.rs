@@ -33,6 +33,12 @@ enum Command {
     Install,
     /// Remove claudit's hooks from Claude Code's user settings.
     Uninstall,
+    /// Replace this binary with the latest release from GitHub.
+    Update {
+        /// Only report whether a newer release exists.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -92,6 +98,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Install => install(&paths),
         Command::Uninstall => uninstall(&paths),
+        Command::Update { check } => update(check),
     }
 }
 
@@ -133,6 +140,33 @@ fn uninstall(paths: &Paths) -> Result<()> {
         println!("Previous settings backed up to {}.", backup.display());
     }
     println!("Your recorded data in {} was kept.", paths.home().display());
+    Ok(())
+}
+
+fn update(check_only: bool) -> Result<()> {
+    let check = claudit::update::check()?;
+    if !check.is_newer() {
+        println!("claudit {} is up to date.", check.current);
+        return Ok(());
+    }
+    if check_only {
+        println!(
+            "claudit {} is available (installed: {}). Run `claudit update` to install it.",
+            check.latest, check.current
+        );
+        return Ok(());
+    }
+    let exe = std::env::current_exe()?;
+    let exe = exe.canonicalize().unwrap_or(exe);
+    claudit::update::ensure_self_managed(&exe)?;
+    println!("Updating claudit {} → {}…", check.current, check.latest);
+    claudit::update::install_release(&exe, check.latest)?;
+    println!("Installed claudit {} at {}.", check.latest, exe.display());
+    println!(
+        "Changes: {}/releases/tag/{}",
+        claudit::update::REPOSITORY,
+        check.latest.tag()
+    );
     Ok(())
 }
 

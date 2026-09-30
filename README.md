@@ -23,7 +23,8 @@ Make sure `~/.local/bin` is on your `PATH`. With Rust:
 `cargo install --locked --git https://github.com/TristanShz/claudit`.
 
 That's it: new sessions are recorded automatically, and your existing
-history is imported on the first run. To stop, run `claudit uninstall`.
+history is imported on the first run. To upgrade, run `claudit update`; to
+stop, run `claudit uninstall`.
 
 ![Overview page](docs/screenshots/overview.png)
 
@@ -42,7 +43,8 @@ history is imported on the first run. To stop, run `claudit uninstall`.
 
 ## Good to know
 
-- **Private by design**: no account, no telemetry, no network. The dashboard
+- **Private by design**: no account, no telemetry, no network (except
+  `claudit update`, when you run it). The dashboard
   only listens on `127.0.0.1`, files are readable by you only, and secrets
   (API keys, tokens, passwords) are redacted before anything is stored.
 - **Your prompts and tool inputs are stored; tool outputs and Claude's

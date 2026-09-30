@@ -18,4 +18,5 @@ pub mod secure_fs;
 pub mod shell;
 pub mod spool;
 pub mod stats;
+pub mod update;
 pub mod web;
