@@ -5,7 +5,7 @@
 //! (`$CLAUDIT_HOME/activities.toml`, same format) when that file exists.
 //! The first rule matching the call wins; a call no rule matches is
 //! [`OTHER_SHELL`] (Bash) or [`OTHER`]. The file format is documented at
-//! the top of `activities/rules.toml` and in the README.
+//! the top of `activities/rules.toml` and in `docs/GUIDE.md`.
 //!
 //! Nothing classified is stored: `stats::activities` classifies the
 //! archived tool calls at query time, so a rule change applies to the whole

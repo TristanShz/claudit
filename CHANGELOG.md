@@ -10,6 +10,12 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Changed
+
+- The README is now a short quick start; the details (commands, what is
+  captured, custom activity rules, SQL queries, limitations) moved to
+  `docs/GUIDE.md`.
+
 ## [0.4.0] - 2026-09-30
 
 ### Added
