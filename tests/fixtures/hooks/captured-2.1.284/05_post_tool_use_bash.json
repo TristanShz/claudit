@@ -1,0 +1,22 @@
+{
+  "session_id": "8b7fcd89-94d5-4cb5-8ee2-da8805b15c80",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80.jsonl",
+  "cwd": "/Users/alice/code/scratch",
+  "prompt_id": "662d5648-37e0-4239-affd-4ea405085399",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "ls -la",
+    "description": "List files with details"
+  },
+  "tool_response": {
+    "stdout": "total 8\ndrwxr-xr-x  4 alice  staff  128 Mar  2 09:00 .\ndrwxr-xr-x  9 alice  staff  288 Mar  2 09:00 ..\ndrwxr-xr-x  9 alice  staff  288 Mar  2 09:00 .git\n-rw-r--r--  1 alice  staff   26 Mar  2 09:00 notes.txt",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_019AFFBoJbnhWxk5wwhfRxhe",
+  "duration_ms": 1019
+}

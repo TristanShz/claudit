@@ -1,0 +1,23 @@
+{
+  "session_id": "8b7fcd89-94d5-4cb5-8ee2-da8805b15c80",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80.jsonl",
+  "cwd": "/Users/alice/code/scratch",
+  "prompt_id": "662d5648-37e0-4239-affd-4ea405085399",
+  "permission_mode": "default",
+  "agent_id": "ab3adec90281dd9a2",
+  "agent_type": "general-purpose",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80/subagents/agent-ab3adec90281dd9a2.jsonl",
+  "last_assistant_message": "hi",
+  "background_tasks": [
+    {
+      "id": "ab3adec90281dd9a2",
+      "type": "subagent",
+      "status": "running",
+      "description": "Run echo command and report output",
+      "agent_type": "general-purpose"
+    }
+  ],
+  "session_crons": []
+}

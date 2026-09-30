@@ -1,0 +1,8 @@
+{
+  "session_id": "8b7fcd89-94d5-4cb5-8ee2-da8805b15c80",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80.jsonl",
+  "cwd": "/Users/alice/code/scratch",
+  "prompt_id": "70fcac9b-d512-47d4-8028-fe5f39a6cb48",
+  "hook_event_name": "SessionEnd",
+  "reason": "other"
+}

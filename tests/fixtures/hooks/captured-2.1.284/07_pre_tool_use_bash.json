@@ -1,0 +1,14 @@
+{
+  "session_id": "8b7fcd89-94d5-4cb5-8ee2-da8805b15c80",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-scratch/8b7fcd89-94d5-4cb5-8ee2-da8805b15c80.jsonl",
+  "cwd": "/Users/alice/code/scratch",
+  "prompt_id": "662d5648-37e0-4239-affd-4ea405085399",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cat does-not-exist.txt",
+    "description": "Try to read non-existent file (expected to fail)"
+  },
+  "tool_use_id": "toolu_01PfFwAMvnXGJ1tvGAj919pd"
+}

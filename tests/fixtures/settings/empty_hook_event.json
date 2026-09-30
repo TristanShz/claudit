@@ -1,0 +1,4 @@
+{
+  "cleanupPeriodDays": 30,
+  "hooks": { "Stop": [] }
+}

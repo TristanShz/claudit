@@ -1,0 +1,36 @@
+{
+  "session_id": "3f2b8c1e-7d4a-4e5b-9c6f-1a2b3c4d5e6f",
+  "prompt_id": "b1e2c3d4-5f60-4a7b-8c9d-0e1f2a3b4c5d",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-acme-api/3f2b8c1e-7d4a-4e5b-9c6f-1a2b3c4d5e6f.jsonl",
+  "cwd": "/Users/alice/code/acme-api",
+  "permission_mode": "default",
+  "effort": { "level": "high" },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Find failing tests",
+    "prompt": "Run the test suite and list the failing tests with their errors.",
+    "subagent_type": "general-purpose"
+  },
+  "tool_response": {
+    "status": "completed",
+    "prompt": "Run the test suite and list the failing tests with their errors.",
+    "agentId": "a1f3c5e7b9d2c4e6f",
+    "content": [
+      { "type": "text", "text": "Two tests fail: login::rejects_bad_password and api::health." }
+    ],
+    "totalDurationMs": 41250,
+    "totalTokens": 18342,
+    "totalToolUseCount": 7,
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 5400,
+      "cache_read_input_tokens": 12100,
+      "output_tokens": 830,
+      "server_tool_use": { "web_search_requests": 0 },
+      "service_tier": "standard"
+    }
+  },
+  "tool_use_id": "toolu_01AgentRun0001xYz",
+  "duration_ms": 41262
+}

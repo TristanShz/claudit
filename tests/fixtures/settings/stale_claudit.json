@@ -1,0 +1,12 @@
+{
+  "cleanupPeriodDays": 365,
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "/Users/alice/bin/log.sh" }] },
+      { "hooks": [{ "type": "command", "command": "'/opt/old place/claudit' hook", "async": true }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "/usr/local/bin/claudit hook", "async": true }] }
+    ]
+  }
+}

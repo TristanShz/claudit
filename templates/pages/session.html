@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}claudit · Session{% endblock %}
+{% block content %}
+<section class="card session-header" id="session-header">
+  <div class="muted small"><a href="/sessions{{ frame.query }}">Sessions</a> / <code>{{ header.session_id }}</code></div>
+  <h1>{% if header.prompt.is_empty() %}<span class="muted">(no prompt)</span>{% else %}{{ header.prompt }}{% endif %}</h1>
+  <ul class="facts">
+    <li title="{{ header.cwd }}"><span class="muted">Project</span> {{ header.project }}</li>
+    {% if !header.branch.is_empty() %}<li><span class="muted">Branch</span> <span class="pill">{{ header.branch }}</span></li>{% endif %}
+    {% if !header.model.is_empty() %}<li><span class="muted">Model</span> {{ header.model }}</li>{% endif %}
+    {% if !header.span.is_empty() %}<li><span class="muted">Time</span> {{ header.span }}</li>{% endif %}
+    {% if !header.version.is_empty() %}<li><span class="muted">Claude Code</span> {{ header.version }}</li>{% endif %}
+  </ul>
+  <ul class="facts totals">
+    <li><strong>{{ turns }}</strong> turn{% if turns != 1 %}s{% endif %}</li>
+    <li><strong>{{ header.active_time }}</strong> active</li>
+    <li><strong>{{ header.tool_calls }}</strong> tool call{% if header.tool_calls != 1 %}s{% endif %}</li>
+    <li><strong>{{ header.tokens }}</strong> tokens{% if !header.cache_read_share.is_empty() %} <span class="muted">({{ header.cache_read_share }})</span>{% endif %}</li>
+    <li><strong>{{ header.cost }}</strong> <span class="muted">API-equivalent</span></li>
+  </ul>
+</section>
+<section class="kpis" id="session-kpis">
+  {% for k in kpis %}
+  <div class="kpi kpi-{{ k.kind }}">
+    <div class="kpi-label"><span class="swatch swatch-{{ k.kind }}"></span> {{ k.label }}</div>
+    <div class="kpi-value">{{ k.value }}</div>
+    <div class="kpi-sub">{{ k.sub }}</div>
+  </div>
+  {% endfor %}
+</section>
+<section class="card" id="timeline-section">
+  <h2>Turn timeline <span class="muted small">each lane starts at its prompt</span></h2>
+  {% if turns == 0 %}
+  <p class="empty">No completed turn recorded for this session.</p>
+  {% else %}
+  <ul class="legend">
+    <li><span class="swatch swatch-model"></span>Model</li>
+    <li><span class="swatch swatch-tool"></span>Tools</li>
+    <li><span class="swatch swatch-waiting"></span>Waiting on you</li>
+    <li><span class="swatch swatch-subagent"></span>Subagents</li>
+  </ul>
+  <div class="chart" data-chart="turn-timeline" data-source="timeline-data" style="height: {{ timeline_height }}px"></div>
+  <script type="application/json" id="timeline-data">{{ timeline_json|safe }}</script>
+  {% endif %}
+</section>
+<div class="row-2">
+  <section class="card" id="session-tools-section">
+    <h2>Tools</h2>
+    {% if tools.is_empty() %}
+    <p class="empty">No tool call recorded for this session.</p>
+    {% else %}
+    {% let label = "Tool" %}{% let rows = tools %}
+    {% include "partials/tool_table.html" %}
+    {% endif %}
+  </section>
+  <section class="card" id="session-skills-subagents-section">
+    <h2>Skills</h2>
+    {% if skills.is_empty() %}
+    <p class="empty">No skill used in this session.</p>
+    {% else %}
+    <table class="ranking">
+      <thead><tr><th>Skill</th><th>When</th></tr></thead>
+      <tbody>
+        {% for s in skills %}
+        <tr><td>{{ s.skill }}{% if !s.pill.is_empty() %} <span class="pill pill-{{ s.pill_kind }}">{{ s.pill }}</span>{% endif %}{% if s.in_subagent %} <span class="muted small">in a subagent</span>{% endif %}</td><td class="nowrap muted">{{ s.at }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    <h2 class="spaced">Subagents</h2>
+    {% if subagents.is_empty() %}
+    <p class="empty">No subagent run in this session.</p>
+    {% else %}
+    <table class="ranking">
+      <thead><tr><th>Type</th><th class="num">Duration</th><th class="num">Tools</th><th>Model</th><th class="num">Tokens</th></tr></thead>
+      <tbody>
+        {% for r in subagents %}
+        <tr><td title="{{ r.started }}">{{ r.agent_type }}</td><td class="num">{{ r.duration }}</td><td class="num">{{ r.tool_calls }}</td><td class="muted small">{{ r.model }}</td><td class="num">{{ r.tokens }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

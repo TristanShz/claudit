@@ -1,0 +1,27 @@
+<section class="kpis" id="kpis-section">
+  <div class="kpi">
+    <div class="kpi-label">Sessions</div>
+    <div class="kpi-value">{{ kpis.sessions }}</div>
+    <div class="kpi-sub">{{ kpis.turns }} completed turn{% if kpis.turns != 1 %}s{% endif %}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Active time</div>
+    <div class="kpi-value">{{ kpis.active_time }}</div>
+    <div class="kpi-sub">prompt to answer, summed</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Tool calls</div>
+    <div class="kpi-value">{{ kpis.tool_calls }}</div>
+    <div class="kpi-sub">{{ kpis.failure_rate }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Tokens</div>
+    <div class="kpi-value">{{ kpis.tokens }}</div>
+    <div class="kpi-sub">{{ kpis.cache_read_share }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">API-equivalent cost</div>
+    <div class="kpi-value">{{ kpis.cost }}</div>
+    <div class="kpi-sub">{{ kpis.cost_note }}</div>
+  </div>
+</section>
