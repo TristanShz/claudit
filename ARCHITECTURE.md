@@ -43,7 +43,9 @@ flowchart LR
    (`src/stats/`) and renders Askama templates. It never polls: data
    refreshes when the page is reloaded. A session page loads each turn's
    trace (`/sessions/{id}/turns/{prompt_id}`, an HTML fragment) with htmx
-   only when the turn is opened.
+   only when the turn is opened. It stops on SIGINT (Ctrl-C) or SIGTERM
+   (`claudit kill`); with `--detach` it runs as a detached copy of itself
+   (see `src/daemon.rs`).
 
 ## Module map
 
@@ -57,6 +59,7 @@ flowchart LR
 | `src/logfile.rs` | The error log (`logs/claudit.log`), redacted, one line per error. |
 | `src/spool.rs` | `SpoolRecord` and the append-only per-session spool files. |
 | `src/hook.rs` | `claudit hook`: `hook::run(paths, clock, spawner, stdin)`; `IngestSpawner` / `DetachedIngest`. |
+| `src/daemon.rs` | `claudit serve --detach` and `claudit kill`: the serve lock (`ServeLock`, a `flock` naming the running dashboard's pid and port), spawning a detached `claudit serve` (`setsid`, output to `logs/serve.log`) and stopping it (SIGTERM, then SIGKILL). |
 | `src/update.rs` | `claudit update`: finds the latest release from GitHub's `/releases/latest` redirect, downloads and SHA-256-checks its archive with `curl` / `shasum` / `tar`, renames the new binary over the running one. |
 | `src/install.rs` | `claudit install` / `uninstall`: pure `install` / `uninstall` over the settings JSON, wrapped by `install_settings` / `uninstall_settings` (backup, atomic write, state file). |
 | `src/db/` | `db::open` (WAL, `synchronous=NORMAL`, 10 s busy timeout, owner-only files) and the migration runner. `build.rs` generates the migration list from `migrations/*.sql`. |
@@ -92,8 +95,10 @@ flowchart LR
 | `spool/<session_id>.jsonl` | Hook payloads not yet purged, one `{"received_at": …, "payload": …}` per line. `received_at` is RFC 3339 with nanoseconds; `payload` is the untouched hook JSON. |
 | `spool/unparsed.jsonl` | Hook stdin that was not valid JSON, same format with `payload` a JSON string of the raw text. |
 | `ingest.lock` | The single-writer ingest lock. |
+| `serve.lock` | The dashboard lock: an advisory `flock` held by every running `claudit serve`, containing `<pid> <port>` once the port is bound (emptied on shutdown). Released by the kernel when the process exits, so it never goes stale. |
 | `ingest.pending` | Present when an ingest found the lock taken since the holder's last round; the holder runs again after releasing the lock. |
 | `logs/claudit.log` | `<timestamp> ERROR [<component>] <message>`, redacted. |
+| `logs/serve.log` | stdout and stderr of a dashboard started with `claudit serve --detach` (appended). |
 | `activities.toml` | Optional user activity rules, read by `claudit serve` on every page (see [Activities](#activities)). |
 | `install-state.json` | What install changed, for uninstall (`install::InstallRecord`): the `cleanupPeriodDays` value it replaced and the hook containers (`hooks` object, event arrays) it created. |
 

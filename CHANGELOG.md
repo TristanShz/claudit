@@ -10,6 +10,21 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- `claudit serve -d` / `--detach`: runs the dashboard in the background,
+  detached from the terminal, so closing the terminal no longer stops it.
+  The command returns once the dashboard listens (or says why it could not
+  start); its output goes to `~/.claudit/logs/serve.log`.
+- `claudit kill` (alias `claudit stop`): stops the running dashboard,
+  detached or not (SIGTERM, then SIGKILL after 10 seconds).
+
+### Changed
+
+- Only one `claudit serve` runs at a time: a second one is refused with the
+  address of the running dashboard. The dashboard also shuts down cleanly on
+  SIGTERM, not only on Ctrl-C.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added

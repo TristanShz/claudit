@@ -16,8 +16,10 @@ disk, so your history starts with whatever Claude Code has kept (30 days by
 default) rather than from zero. From then on the archive keeps everything,
 independently of Claude Code's own retention.
 
-There is no daemon. `claudit serve` starts the dashboard when you want it,
-catches up on pending ingestion first, and stops on Ctrl-C.
+Recording needs no daemon. `claudit serve` starts the dashboard when you
+want it, catches up on pending ingestion first, and stops on Ctrl-C; see
+[Running the dashboard in the background](#running-the-dashboard-in-the-background)
+to keep it up after you close the terminal.
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full data flow and data model.
 
@@ -103,7 +105,8 @@ inactivity for sessions that never ended cleanly).
 | `claudit install` | Adds claudit's hooks to Claude Code's user settings. |
 | `claudit uninstall` | Removes them and restores `cleanupPeriodDays`. Your recorded data in `~/.claudit` is kept. |
 | `claudit update [--check]` | Downloads the latest release from GitHub, checks its SHA-256 and replaces the binary in place (`--check` only reports whether one is available). For a binary installed with `cargo install`, it prints the `cargo` command to run instead. |
-| `claudit serve [--port N]` | Catches up on pending ingestion, then serves the dashboard on `127.0.0.1:N` (default 8421) until Ctrl-C. |
+| `claudit serve [--port N] [-d]` | Catches up on pending ingestion, then serves the dashboard on `127.0.0.1:N` (default 8421) until Ctrl-C. With `-d` / `--detach`, runs it in the background instead, detached from the terminal, and returns once it listens. Only one dashboard runs at a time. |
+| `claudit kill` | Stops the running dashboard, whether it was started with `-d` or in another terminal (alias: `claudit stop`). Does nothing, successfully, when none is running. |
 | `claudit ingest` | Loads new spooled events and transcripts into the archive. Runs automatically after each turn; safe to run by hand at any time (it is incremental, deduplicated and exits at once if another ingest is running). |
 | `claudit reingest` | Rebuilds every derived table from the archived hook events plus the transcripts still on disk, re-applying the current redaction patterns. After an upgrade that derives more from the archive (e.g. tool calls from transcripts), the next ingest runs it once by itself; run it by hand after an upgrade that changes the parser or the patterns. |
 | `claudit hook` | Records one hook payload from stdin. Run by Claude Code, not by hand. |
@@ -112,11 +115,43 @@ inactivity for sessions that never ended cleanly).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `install-state.json`, `ingest.lock`, `ingest.pending`, and your optional `activities.toml`. |
+| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `logs/serve.log`, `install-state.json`, `ingest.lock`, `ingest.pending`, `serve.lock`, and your optional `activities.toml`. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's configuration directory: `settings.json` and the `projects/` transcripts. Set it the same way you set it for Claude Code. |
 
 Hooks inherit Claude Code's environment, so a `CLAUDIT_HOME` set in the
 shell you start Claude Code from also applies to recording.
+
+### Running the dashboard in the background
+
+```sh
+claudit serve -d            # or: claudit serve --detach --port 9000
+claudit kill                # stop it
+```
+
+`claudit serve -d` starts the same dashboard as `claudit serve`, but in a
+session of its own: closing the terminal or logging out of the shell does
+not stop it. The command waits until the dashboard listens, prints its
+address and process id, and exits. If the dashboard cannot start (the port
+is taken, for example), it says why and exits with an error.
+
+- **Output.** What the dashboard would print in a terminal (its address,
+  the start-up catch-up, errors) is appended to
+  `~/.claudit/logs/serve.log`.
+- **One dashboard at a time.** Any running `claudit serve`, detached or
+  not, holds `~/.claudit/serve.lock`, which records its process id and
+  port. A second `claudit serve` is refused with the address of the one
+  already running. The lock is released by the system when the dashboard
+  exits, even if it crashes, so it never needs cleaning up.
+- **Stopping.** `claudit kill` finds the dashboard through that lock and
+  asks it to shut down (SIGTERM). It finishes the start-up catch-up if one
+  is still running, then exits; after 10 seconds it is killed outright
+  (SIGKILL), which is safe for the archive. Ctrl-C still stops a dashboard
+  running in the foreground.
+- **It does not survive a reboot or logout of your whole session**: it is
+  not a login item or a launchd service. Run `claudit serve -d` again after
+  a restart.
+- **After `claudit update`**, the running dashboard is still the old
+  version: restart it with `claudit kill && claudit serve -d`.
 
 ### When something looks wrong
 
