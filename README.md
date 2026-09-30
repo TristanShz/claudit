@@ -16,15 +16,18 @@ curl -fsSL "https://github.com/TristanShz/claudit/releases/download/$VERSION/cla
   | tar -xz --strip-components=1 -C ~/.local/bin "claudit-$VERSION-$TARGET/claudit"
 
 claudit install   # record your Claude Code sessions
-claudit serve     # open http://127.0.0.1:8421
+claudit serve     # open http://127.0.0.1:8421 (Ctrl-C to stop)
 ```
+
+To keep the dashboard running after you close the terminal, start it in the
+background with `claudit serve -d`, and stop it with `claudit kill`.
 
 Make sure `~/.local/bin` is on your `PATH`. With Rust:
 `cargo install --locked --git https://github.com/TristanShz/claudit`.
 
 That's it: new sessions are recorded automatically, and your existing
 history is imported on the first run. To upgrade, run `claudit update`; to
-stop, run `claudit uninstall`.
+stop recording, run `claudit uninstall`.
 
 ![Overview page](docs/screenshots/overview.png)
 

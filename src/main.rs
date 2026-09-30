@@ -28,7 +28,14 @@ enum Command {
         /// Port to listen on (always bound to 127.0.0.1).
         #[arg(long, default_value_t = claudit::web::DEFAULT_PORT)]
         port: u16,
+        /// Run in the background, detached from the terminal (stop it with
+        /// `claudit kill`).
+        #[arg(short, long)]
+        detach: bool,
     },
+    /// Stop the running dashboard (started with `serve --detach` or not).
+    #[command(visible_alias = "stop")]
+    Kill,
     /// Add claudit's hooks to Claude Code's user settings.
     Install,
     /// Remove claudit's hooks from Claude Code's user settings.
@@ -76,7 +83,11 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Hook => unreachable!("handled before argument parsing"),
         Command::Ingest => catch_up(&paths),
-        Command::Serve { port } => {
+        Command::Serve { port, detach: true } => serve_detached(&paths, port),
+        Command::Serve {
+            port,
+            detach: false,
+        } => {
             // Serve catches up once in the background at startup; the
             // dashboard never polls afterwards.
             let runtime = tokio::runtime::Runtime::new()?;
@@ -96,10 +107,41 @@ fn run(cli: Cli) -> Result<()> {
             );
             Ok(())
         }
+        Command::Kill => kill(&paths),
         Command::Install => install(&paths),
         Command::Uninstall => uninstall(&paths),
         Command::Update { check } => update(check),
     }
+}
+
+fn serve_detached(paths: &Paths, port: u16) -> Result<()> {
+    let server = claudit::daemon::spawn_detached(paths, port)?;
+    println!(
+        "claudit dashboard: {} (running in the background, pid {}).",
+        server.url(),
+        server.pid
+    );
+    println!("Output goes to {}.", paths.serve_log_file().display());
+    println!("Stop it with `claudit kill`.");
+    Ok(())
+}
+
+fn kill(paths: &Paths) -> Result<()> {
+    use claudit::daemon::KillOutcome;
+    match claudit::daemon::kill(paths)? {
+        KillOutcome::NotRunning => println!("No claudit dashboard is running."),
+        KillOutcome::Stopped(server) => println!(
+            "Stopped the claudit dashboard at {} (pid {}).",
+            server.url(),
+            server.pid
+        ),
+        KillOutcome::Killed(server) => println!(
+            "The claudit dashboard at {} (pid {}) did not stop in time and was killed.",
+            server.url(),
+            server.pid
+        ),
+    }
+    Ok(())
 }
 
 fn install(paths: &Paths) -> Result<()> {

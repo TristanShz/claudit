@@ -69,6 +69,12 @@ impl Paths {
         self.home.join("ingest.pending")
     }
 
+    /// The dashboard lock, held by every running `claudit serve`; holds
+    /// `<pid> <port>` once the port is bound.
+    pub fn serve_lock_file(&self) -> PathBuf {
+        self.home.join("serve.lock")
+    }
+
     /// Directory of claudit log files.
     pub fn logs_dir(&self) -> PathBuf {
         self.home.join("logs")
@@ -77,6 +83,11 @@ impl Paths {
     /// The error log every internal failure is appended to.
     pub fn log_file(&self) -> PathBuf {
         self.logs_dir().join("claudit.log")
+    }
+
+    /// Output of a dashboard started with `claudit serve --detach`.
+    pub fn serve_log_file(&self) -> PathBuf {
+        self.logs_dir().join("serve.log")
     }
 
     /// What `claudit install` changed and `claudit uninstall` must restore.

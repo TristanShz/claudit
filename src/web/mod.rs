@@ -27,6 +27,7 @@ use axum::Router;
 use axum::routing::{get, post};
 
 use crate::clock::SystemClock;
+use crate::daemon::ServeLock;
 use crate::ingest::{self, IngestOutcome};
 use crate::logfile;
 use crate::paths::Paths;
@@ -70,16 +71,21 @@ fn app(state: AppState) -> Router {
         .with_state(Arc::new(state))
 }
 
-/// Serves the dashboard on `127.0.0.1:<port>` until Ctrl-C. The catch-up
-/// ingest runs in the background once the port is bound; pages show a
-/// banner until it is done (the dashboard never polls: reload to see).
+/// Serves the dashboard on `127.0.0.1:<port>` until Ctrl-C or SIGTERM
+/// (`claudit kill`). The catch-up ingest runs in the background once the
+/// port is bound; pages show a banner until it is done (the dashboard never
+/// polls: reload to see). Holds the serve lock throughout, so only one
+/// dashboard runs at a time.
 pub async fn serve(paths: Paths, port: u16) -> Result<()> {
+    let mut lock = ServeLock::acquire(&paths)?;
     // Loopback only: the archive must never be exposed on the network.
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("bind {addr}"))?;
-    eprintln!("claudit dashboard: http://{}", listener.local_addr()?);
+    let local = listener.local_addr()?;
+    lock.publish(local.port())?;
+    eprintln!("claudit dashboard: http://{local}");
 
     let catching_up = Arc::new(AtomicBool::new(true));
     let flag = catching_up.clone();
@@ -94,11 +100,26 @@ pub async fn serve(paths: Paths, port: u16) -> Result<()> {
     });
 
     axum::serve(listener, app(AppState { paths, catching_up }))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
+        .with_graceful_shutdown(shutdown_signal())
         .await?;
+    drop(lock);
     Ok(())
+}
+
+/// Resolves on Ctrl-C (SIGINT) or SIGTERM, the signal `claudit kill` sends.
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+    match signal(SignalKind::terminate()) {
+        Ok(mut terminate) => {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = terminate.recv() => {}
+            }
+        }
+        Err(_) => {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    }
 }
 
 /// Runs the locked catch-up ingest; failures also go to the error log.
