@@ -25,6 +25,7 @@ macro_rules! first_model_of_turn {
     };
 }
 
+pub mod activities;
 pub mod consumption;
 pub mod cost;
 mod filter;

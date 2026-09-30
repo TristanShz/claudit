@@ -44,6 +44,31 @@
         })),
       };
     },
+    // Tool time per activity and day, as stacked columns.
+    "activities-daily": (data) => {
+      const totals = data.days.map((_, i) => data.series.reduce((a, s) => a + s.ms[i], 0));
+      const step = timeStep(Math.max(1, ...totals));
+      return {
+        tooltip: {
+          trigger: "axis", axisPointer: { type: "shadow" }, confine: true,
+          valueFormatter: (v) => fmtMs(v),
+        },
+        legend: { type: "scroll", bottom: 0, textStyle: { color: cssVar("--muted") || "#888" } },
+        grid: { left: 8, right: 8, top: 16, bottom: 36, containLabel: true },
+        xAxis: { type: "category", data: data.days },
+        yAxis: {
+          type: "value",
+          interval: step,
+          max: (extent) => Math.max(step, Math.ceil(extent.max / step) * step),
+          axisLabel: { formatter: (v) => fmtMs(v) },
+          splitLine: { lineStyle: { opacity: 0.4 } },
+        },
+        series: data.series.map((s) => ({
+          name: s.name, type: "bar", stack: "t", barMaxWidth: 32, data: s.ms,
+          itemStyle: { color: cssVar(`--act-${s.color}`) || "#888", borderColor: surface(), borderWidth: 1 },
+        })),
+      };
+    },
     // Session turn timeline: one lane per turn, its model / tool / waiting /
     // subagent segments drawn as rectangles positioned in time from the
     // turn's start (a custom series).

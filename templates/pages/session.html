@@ -43,6 +43,22 @@
   <script type="application/json" id="timeline-data">{{ timeline_json|safe }}</script>
   {% endif %}
 </section>
+<section class="card" id="session-activities-section">
+  <h2>Activities <span class="muted small">tool time by activity, subagents' calls included</span></h2>
+  {% if activities.is_empty() %}
+  <p class="empty">No tool call recorded for this session.</p>
+  {% else %}
+  <ul class="activity-list">
+    {% for a in activities %}
+    <li>
+      <span class="activity-label"><span class="swatch" style="background: var(--act-{{ a.color }})"></span> <strong>{{ a.name }}</strong></span>
+      <span class="activity-facts">{{ a.time }} · {{ a.calls }} call{% if a.calls != 1 %}s{% endif %}{% if a.failures > 0 %} · <span class="failed">{{ a.failures }} failed</span>{% endif %}</span>
+      <div class="hbar" role="img" aria-label="{{ a.share }} of tool time"><span style="width: {{ a.bar_pct }}%; background: var(--act-{{ a.color }})"></span></div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
 <div class="row-2">
   <section class="card" id="session-tools-section">
     <h2>Tools</h2>

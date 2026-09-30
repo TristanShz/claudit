@@ -10,3 +10,8 @@
   Details in <code>{{ warning.log_path }}</code>.
 </div>
 {% endif %}
+{% if let Some(problem) = frame.rules_problem %}
+<div class="banner warning" role="status" id="activity-rules-warning">
+  Your activity rules were ignored, the built-in rules apply: <code>{{ problem }}</code>
+</div>
+{% endif %}

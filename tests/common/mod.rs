@@ -235,12 +235,25 @@ impl TestEnv {
     /// (`tests/fixtures/hooks/captured-<version>/`), in file-name order, each
     /// at the receive time its `received_at.json` records.
     pub fn replay_captured_hooks(&self, version: &str) {
-        let dir = fixtures_dir().join(format!("hooks/captured-{version}"));
+        self.replay_hook_dir(&format!("captured-{version}"));
+    }
+
+    /// Replays the synthetic session `9f4c2b7a-…`
+    /// (`tests/fixtures/hooks/activities/`): tests, builds, git, edits and
+    /// one other shell command on 2026-03-05, known only from hooks.
+    pub fn replay_activities_session(&self) {
+        self.replay_hook_dir("activities");
+    }
+
+    /// Feeds every payload of `tests/fixtures/hooks/<dir>/`, in file-name
+    /// order, at the receive time its `received_at.json` records.
+    fn replay_hook_dir(&self, dir: &str) {
+        let path = fixtures_dir().join("hooks").join(dir);
         let times: std::collections::BTreeMap<String, DateTime<Utc>> =
-            serde_json::from_str(&fs::read_to_string(dir.join("received_at.json")).unwrap())
+            serde_json::from_str(&fs::read_to_string(path.join("received_at.json")).unwrap())
                 .unwrap();
         for (name, at) in times {
-            self.hook_fixture_at(at, &format!("captured-{version}/{name}"));
+            self.hook_fixture_at(at, &format!("{dir}/{name}"));
         }
     }
 

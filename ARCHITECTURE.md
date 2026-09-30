@@ -68,13 +68,15 @@ flowchart LR
 | `src/ingest/purge.rs` | Spool purge. |
 | `src/ingest/reingest.rs` | Reset-and-replay, `DERIVED_TABLES`, `KEPT_TABLES`. |
 | `src/pricing.rs` | `PriceTable` (from `pricing/prices.toml`), `Usd` (exact picodollars), `Cost`. |
-| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `consumption`, `cost`, `models`, `sessions`, `time`, `tools`, `skills`, `subagents`, `ingest_status`. |
+| `src/activities.rs` | `ActivityRules` (from `activities/rules.toml`, plus the user's `activities.toml`): classifies a tool call into an activity and a detail. |
+| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `sessions`, `time`, `tools`, `skills`, `subagents`, `ingest_status`. |
 | `src/web/` | axum router bound to `127.0.0.1`, one module per page under `pages/`, embedded assets (`assets.rs`), query-string filters (`filter_params.rs`), display helpers (`format.rs`). |
 | `templates/` | Askama templates: `base.html`, `pages/`, `sections/` (one per dashboard section), `partials/`. |
 | `assets/` | htmx, ECharts, `claudit.js` (chart renderers), `claudit.css`; compiled into the binary. |
 | `migrations/` | SQL migrations, applied in file-name order. |
 | `redaction/patterns.toml` | Versioned secret patterns, compiled in. |
 | `pricing/prices.toml` | Versioned API price table, compiled in. |
+| `activities/rules.toml` | Versioned built-in activity rules, compiled in. |
 | `examples/demo_archive.rs` | Builds a demo archive from the test fixtures (screenshots, manual browser checks). |
 
 ## Files on disk
@@ -89,6 +91,7 @@ flowchart LR
 | `ingest.lock` | The single-writer ingest lock. |
 | `ingest.pending` | Present when an ingest found the lock taken since the holder's last round; the holder runs again after releasing the lock. |
 | `logs/claudit.log` | `<timestamp> ERROR [<component>] <message>`, redacted. |
+| `activities.toml` | Optional user activity rules, read by `claudit serve` on every page (see [Activities](#activities)). |
 | `install-state.json` | What install changed, for uninstall (`install::InstallRecord`): the `cleanupPeriodDays` value it replaced and the hook containers (`hooks` object, event arrays) it created. |
 
 Claude Code's side (`CLAUDE_CONFIG_DIR`, default `~/.claude`) is only read,
@@ -385,6 +388,27 @@ reprices the whole archive without re-ingesting.
 (main thread vs subagents), and reports each model's share of the filtered
 tokens and of the *priced* cost (a model the table lacks has no cost share,
 and the others' shares are then shares of the known part).
+
+## Activities
+
+`src/activities.rs` classifies a tool call (tool name, MCP server, the
+`bash_command` column and `tool_input.command`) with an ordered list of
+rules: the user's `$CLAUDIT_HOME/activities.toml` first, then the built-in
+`activities/rules.toml`. The first rule whose tool glob, optional leading
+command glob and optional regex (searched in each simple command of the
+line, see the README) all match gives the activity; otherwise it is
+`Other shell` (Bash) or `Other`. Each call also gets a **detail**: for Bash
+the command normalized to program + subcommand (`cargo test`,
+`pnpm exec vitest`, `python -m pytest`), for MCP the server, otherwise the
+tool name.
+
+Like cost, nothing classified is stored: `stats::activities` reads the
+filtered `tool_calls` rows and classifies them in Rust, classifying each
+distinct call once per report (about 30–70 ms for 50 000 calls in a release
+build), so a rule change applies to the whole archive without a reingest.
+The dashboard loads the rules on every page (`web::frame`), keeping the last
+compiled user file while its text is unchanged; an invalid file is logged
+once per distinct problem, ignored, and reported in a banner.
 
 ## The stats API
 

@@ -1,0 +1,17 @@
+<div class="table-scroll">
+<table class="ranking activity-bars">
+  <thead><tr><th>Activity</th><th><span class="sr-only">Time bar</span></th><th class="num">Time</th><th class="num">Share</th><th class="num">Calls</th><th class="num">Failed</th></tr></thead>
+  <tbody>
+    {% for a in activities %}
+    <tr>
+      <td class="name" title="{{ a.name }}"><span class="swatch" style="background: var(--act-{{ a.color }})"></span> {{ a.name }}</td>
+      <td class="bar-cell"><div class="hbar" role="img" aria-label="{{ a.share }} of tool time"><span style="width: {{ a.bar_pct }}%; background: var(--act-{{ a.color }})"></span></div></td>
+      <td class="num">{{ a.time }}</td>
+      <td class="num muted">{{ a.share }}</td>
+      <td class="num">{{ a.calls }}</td>
+      <td class="num{% if a.failures > 0 %} failed{% endif %}">{% if a.failures > 0 %}{{ a.failure_rate }}{% else %}–{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}claudit · Activities{% endblock %}
+{% block content %}
+<section class="card" id="activities-section">
+  <h2>What Claude's tools spend time on{% if !activities.is_empty() %} <span class="muted">· {{ activities_total }}</span>{% endif %}</h2>
+  <p class="muted small">Each tool call is classified by the first matching rule ({{ rules_version }}); add your own in <code>$CLAUDIT_HOME/activities.toml</code>. Time is each call's execution time, summed: parallel calls add up, and a subagent's calls count in their own activity as well as in its Agent call's.</p>
+  {% if activities.is_empty() %}
+  <p class="empty">No tool call recorded for this filter.</p>
+  {% else %}
+  {% include "partials/activity_bars.html" %}
+  {% endif %}
+</section>
+{% if !activities.is_empty() %}
+<section class="card" id="activities-daily-section">
+  <h2>By day</h2>
+  <div class="chart" data-chart="activities-daily" data-source="activities-data"></div>
+  <script type="application/json" id="activities-data">{{ chart_json|safe }}</script>
+</section>
+<div class="row-2" id="activity-details">
+  {% for a in activities %}
+  <section class="card activity-card">
+    <h2><span class="swatch" style="background: var(--act-{{ a.color }})"></span> {{ a.name }} <span class="muted small">{{ a.time }} · {{ a.calls }} call{% if a.calls != 1 %}s{% endif %}{% if a.failures > 0 %} · {{ a.failures }} failed{% endif %} · median {{ a.median }} · p95 {{ a.p95 }}</span></h2>
+    {% let label = "Command or tool" %}{% let rows = a.top %}
+    {% include "partials/tool_table.html" %}
+    {% if a.more_details > 0 %}<p class="muted small">and {{ a.more_details }} more</p>{% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,4 +1,5 @@
-//! The overview (home) page: KPIs, where the time goes, the top tools,
+//! The overview (home) page: KPIs, where the time goes, what the tools
+//! spend time on, the top tools,
 //! skills, subagents and models, and the most recent sessions.
 
 mod time_section;
@@ -15,13 +16,13 @@ use crate::pricing::{Cost, PriceTable};
 use crate::stats::consumption::{self, Consumption};
 use crate::stats::time::TimeBreakdown;
 use crate::stats::tools::RankedCalls;
-use crate::stats::{cost, models, sessions, skills, subagents, time, tools};
+use crate::stats::{activities, cost, models, sessions, skills, subagents, time, tools};
 use crate::web::AppState;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
 use crate::web::frame::Frame;
-use crate::web::rows::{self, ModelRow, SessionRow, SkillRow, SubagentRow, ToolRow};
+use crate::web::rows::{self, ActivityRow, ModelRow, SessionRow, SkillRow, SubagentRow, ToolRow};
 use time_section::TimeSection;
 
 /// Rows shown per ranked list.
@@ -35,6 +36,9 @@ struct OverviewPage {
     frame: Frame,
     kpis: Kpis,
     time: TimeSection,
+    activities: Vec<ActivityRow>,
+    /// Summed tool time, formatted.
+    activities_total: String,
     tools: Vec<ToolRow>,
     skills: Vec<SkillRow>,
     subagents: Vec<SubagentRow>,
@@ -129,6 +133,7 @@ pub(in crate::web) async fn handler(
             &tool_ranking,
             &cost::total_cost(&conn, &filter, prices)?.cost,
         );
+        let activity_breakdown = activities::activity_breakdown(&conn, &filter, &frame.rules)?;
         let time = TimeSection::build(breakdown, time::waiting_by_tool(&conn, &filter)?)?;
 
         let costs: HashMap<String, Cost> = cost::cost_by_session(&conn, &filter, prices)?
@@ -152,6 +157,8 @@ pub(in crate::web) async fn handler(
             frame,
             kpis,
             time,
+            activities: rows::activity_rows(&activity_breakdown),
+            activities_total: format::duration_ms(activity_breakdown.total_duration_ms),
             tools,
             skills,
             subagents,

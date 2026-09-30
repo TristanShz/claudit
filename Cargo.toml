@@ -20,6 +20,7 @@ include = [
     "/templates/**/*.html",
     "/assets/*",
     "/pricing/prices.toml",
+    "/activities/rules.toml",
     "/redaction/patterns.toml",
     "/README.md",
     "/ARCHITECTURE.md",

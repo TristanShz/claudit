@@ -53,6 +53,8 @@ struct Digest {
     daily_series_days: Vec<String>,
     /// `model_usage`: models, as ranked.
     models: Vec<String>,
+    /// `activity_breakdown`: activities, as ranked.
+    activities: Vec<String>,
 }
 
 fn digest(env: &TestEnv, filter: &Filter) -> Digest {
@@ -129,6 +131,16 @@ fn digest(env: &TestEnv, filter: &Filter) -> Digest {
             .into_iter()
             .map(|m| m.model)
             .collect(),
+        activities: stats::activities::activity_breakdown(
+            &conn,
+            filter,
+            claudit::activities::ActivityRules::builtin(),
+        )
+        .unwrap()
+        .activities
+        .into_iter()
+        .map(|a| a.activity)
+        .collect(),
     }
 }
 
@@ -193,6 +205,7 @@ fn login_session_only() -> Digest {
         cost_by_model: strings(&["claude-sonnet-4-6"]),
         daily_series_days: strings(&["2026-03-03"]),
         models: strings(&["claude-sonnet-4-6"]),
+        activities: strings(&["Git & GitHub"]),
         ..Digest::default()
     }
 }
@@ -248,6 +261,7 @@ fn a_project_filter_keeps_only_that_directory_in_every_report() {
             cost_by_model: strings(&["claude-opus-5-5"]),
             daily_series_days: strings(&["2026-03-04"]),
             models: strings(&["claude-opus-5-5"]),
+            activities: strings(&["Read files"]),
             ..Digest::default()
         }
     );
@@ -284,6 +298,7 @@ fn a_model_filter_keeps_what_that_model_did_in_every_report() {
             cost_by_agent_type: strings(&["general-purpose"]),
             daily_series_days: strings(&["2026-03-02"]),
             models: strings(&[HAIKU]),
+            activities: strings(&["Read files"]),
             ..Digest::default()
         }
     );

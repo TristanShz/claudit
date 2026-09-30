@@ -52,6 +52,31 @@ model 16.8 s, waiting 0.1 s, subagent 63.4 s.
 `post_tool_use_skill.json` (session `3f2b8c1e-…`) is a model-invoked Skill
 tool call.
 
+## `activities/`: session `9f4c2b7a-…`
+
+A synthetic session known only from hooks (no transcript), in
+`/Users/alice/code/acme-api` on 2026-03-05, of thirteen completed calls,
+numbered in arrival order with their receive times in `received_at.json`
+(`TestEnv::replay_activities_session`). It is not part of the default
+fixture archive, so the totals above are unchanged; `tests/activities.rs`
+documents what each activity adds up to.
+
+| # | Call | `duration_ms` | Outcome |
+| --- | --- | --- | --- |
+| 01 | Bash `cargo test` | 12000 | ok |
+| 02 | Bash `cargo test -p api` | 8000 | failed |
+| 03 | Edit | 50 | ok |
+| 04 | Bash `cd crates/api && cargo nextest run` | 5000 | ok |
+| 05 | Bash `pnpm test` | 3000 | failed |
+| 06 | Edit | 70 | ok |
+| 07 | Write | 30 | ok |
+| 08 | Bash `RUST_LOG=debug cargo build` | 6000 | ok |
+| 09 | Bash `cargo check` | 2000 | ok |
+| 10 | Bash `echo hello` | 10 | ok |
+| 11 | Bash `git status` | 100 | ok |
+| 12 | Bash `git commit -m "fix: flaky test"` | 300 | ok |
+| 13 | Bash `gh pr create --fill` | 1600 | ok |
+
 ## `captured-2.1.284/`: a real session
 
 Captured from **Claude Code 2.1.284** running headless

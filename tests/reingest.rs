@@ -9,6 +9,7 @@
 mod common;
 
 use chrono::Duration;
+use claudit::activities::ActivityRules;
 use claudit::pricing::PriceTable;
 use claudit::stats::{self, Filter};
 use common::TestEnv;
@@ -39,6 +40,7 @@ struct Reports {
     cost_by_agent_type: Vec<stats::cost::CostLine>,
     daily_series: Vec<stats::cost::DailyUsage>,
     model_usage: stats::models::ModelsReport,
+    activity_breakdown: stats::activities::ActivityBreakdown,
     acme_tool_ranking: Vec<stats::tools::RankedCalls>,
     acme_consumption: stats::consumption::Consumption,
     acme_sessions: Vec<stats::sessions::SessionSummary>,
@@ -47,10 +49,12 @@ struct Reports {
     acme_subagents: Vec<stats::subagents::SubagentTypeStat>,
     acme_total_cost: stats::cost::CostLine,
     acme_model_usage: stats::models::ModelsReport,
+    acme_activity_breakdown: stats::activities::ActivityBreakdown,
     session_a_turn_times: Vec<stats::time::TurnTime>,
     session_a_skill_invocations: Vec<stats::skills::SkillInvocation>,
     session_a_subagent_runs: Vec<stats::subagents::SubagentRun>,
     session_a_detail: Option<stats::session_detail::SessionDetail>,
+    session_a_activities: stats::activities::ActivityBreakdown,
 }
 
 /// Fixture session `8d0c5a3e-…`, whose hooks [`populate`] replays.
@@ -64,6 +68,7 @@ fn reports(env: &TestEnv) -> Reports {
     };
     let conn = env.db();
     let prices = PriceTable::builtin();
+    let rules = ActivityRules::builtin();
     let cost = |f: fn(
         &rusqlite::Connection,
         &Filter,
@@ -92,6 +97,8 @@ fn reports(env: &TestEnv) -> Reports {
         cost_by_agent_type: cost(stats::cost::cost_by_agent_type),
         daily_series: stats::cost::daily_series(&conn, &all, prices).expect("daily_series"),
         model_usage: stats::models::model_usage(&conn, &all, prices).expect("model_usage"),
+        activity_breakdown: stats::activities::activity_breakdown(&conn, &all, rules)
+            .expect("activity_breakdown"),
         acme_tool_ranking: env.tool_ranking(&acme),
         acme_consumption: env.consumption(&acme),
         acme_sessions: env.sessions(&acme),
@@ -100,6 +107,8 @@ fn reports(env: &TestEnv) -> Reports {
         acme_subagents: env.subagents(&acme),
         acme_total_cost: stats::cost::total_cost(&conn, &acme, prices).expect("total_cost"),
         acme_model_usage: stats::models::model_usage(&conn, &acme, prices).expect("model_usage"),
+        acme_activity_breakdown: stats::activities::activity_breakdown(&conn, &acme, rules)
+            .expect("activity_breakdown"),
         session_a_turn_times: stats::time::session_turn_times(&conn, SESSION_A)
             .expect("session_turn_times"),
         session_a_skill_invocations: stats::skills::session_skill_invocations(&conn, SESSION_A)
@@ -108,6 +117,8 @@ fn reports(env: &TestEnv) -> Reports {
             .expect("session_subagent_runs"),
         session_a_detail: stats::session_detail::session_detail(&conn, SESSION_A, prices)
             .expect("session_detail"),
+        session_a_activities: stats::activities::session_activities(&conn, SESSION_A, rules)
+            .expect("session_activities"),
     }
 }
 
@@ -156,6 +167,7 @@ fn reingest_on_a_populated_archive_yields_identical_reports() {
     );
     assert!(!before.session_a_skill_invocations.is_empty());
     assert!(before.session_a_detail.is_some());
+    assert!(!before.activity_breakdown.activities.is_empty());
 
     claudit::ingest::reingest(&env.paths).expect("reingest succeeds");
 

@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use super::format;
 use crate::pricing::Cost;
+use crate::stats::activities::ActivityBreakdown;
 use crate::stats::models::ModelsReport;
 use crate::stats::sessions::SessionSummary;
 use crate::stats::skills::SkillStat;
@@ -266,6 +267,100 @@ pub(super) fn model_rows(report: &ModelsReport) -> Vec<ModelRow> {
                 subagent_messages: m.subagents.api_messages,
                 subagent_tokens: format::count(m.subagents.tokens.total()),
                 subagent_cost: format::cost(&m.subagents.cost),
+            }
+        })
+        .collect()
+}
+
+/// An activity (overview, `/activities`, session page).
+pub(super) struct ActivityRow {
+    pub name: String,
+    /// Palette slot: `var(--act-<color>)` (see [`activity_color`]).
+    pub color: usize,
+    pub time: String,
+    /// Share of the tool time, e.g. `42%`.
+    pub share: String,
+    /// Bar width relative to the largest activity, e.g. `61.50`.
+    pub bar_pct: String,
+    pub calls: u64,
+    pub failures: u64,
+    pub failure_rate: String,
+    pub median: String,
+    pub p95: String,
+    /// Its top details (commands, tools, MCP servers).
+    pub top: Vec<ToolRow>,
+    /// Details beyond `top`.
+    pub more_details: u64,
+}
+
+/// The built-in activities, in palette order.
+const ACTIVITY_COLORS: [&str; 16] = [
+    "Tests",
+    "Build & typecheck",
+    "Lint & format",
+    "Git & GitHub",
+    "Dependencies",
+    "Run & scripts",
+    "Search code",
+    "Read files",
+    "Edit files",
+    "Web",
+    "Subagents",
+    "Skills",
+    "MCP",
+    "Planning & todos",
+    crate::activities::OTHER_SHELL,
+    crate::activities::OTHER,
+];
+
+/// A stable palette slot per activity name: the built-in activities have
+/// their own, a user-defined one gets one from its name.
+pub(super) fn activity_color(name: &str) -> usize {
+    ACTIVITY_COLORS
+        .iter()
+        .position(|n| *n == name)
+        .unwrap_or_else(|| {
+            let hash = name
+                .bytes()
+                .fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(b as usize));
+            hash % (ACTIVITY_COLORS.len() - 2)
+        })
+}
+
+pub(super) fn activity_rows(breakdown: &ActivityBreakdown) -> Vec<ActivityRow> {
+    let max = breakdown
+        .activities
+        .iter()
+        .map(|a| a.stats.total_duration_ms)
+        .max()
+        .unwrap_or(0);
+    breakdown
+        .activities
+        .iter()
+        .map(|a| {
+            let stats = &a.stats;
+            let top = tool_rows(a.top.clone());
+            ActivityRow {
+                color: activity_color(&a.activity),
+                name: a.activity.clone(),
+                time: format::duration_ms(stats.total_duration_ms),
+                share: format!("{:.0}%", breakdown.share(a) * 100.0),
+                bar_pct: if max > 0 {
+                    format!("{:.2}", stats.total_duration_ms as f64 * 100.0 / max as f64)
+                } else {
+                    "0".to_owned()
+                },
+                calls: stats.calls,
+                failures: stats.failures,
+                failure_rate: format::percent(stats.failure_rate()),
+                median: stats
+                    .median_duration_ms
+                    .map_or_else(|| "–".to_owned(), format::duration_ms),
+                p95: stats
+                    .p95_duration_ms
+                    .map_or_else(|| "–".to_owned(), format::duration_ms),
+                more_details: a.details.saturating_sub(top.len() as u64),
+                top,
             }
         })
         .collect()

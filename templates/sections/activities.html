@@ -1,0 +1,8 @@
+<section class="card" id="activities-section">
+  <h2>What Claude's tools spend time on{% if !activities.is_empty() %} <span class="muted">· {{ activities_total }}</span>{% endif %} <a class="all-link" href="/activities{{ frame.query }}">All activities →</a></h2>
+  {% if activities.is_empty() %}
+  <p class="empty">No tool call recorded for this filter.</p>
+  {% else %}
+  {% include "partials/activity_bars.html" %}
+  {% endif %}
+</section>
