@@ -8,7 +8,8 @@
 //!   from the invocation (clamped to its turn) until the next skill
 //!   invocation of the same turn, or the end of the turn. A typed skill thus
 //!   owns its whole turn; a skill Claude loads mid-turn owns the rest of it.
-//!   Invocations inside a subagent, or outside a known turn, get none.
+//!   Invocations inside a subagent, or outside a turn the hooks timed
+//!   (`UserPromptSubmit` and `Stop`, as for [`super::time`]), get none.
 
 use std::collections::BTreeMap;
 
@@ -177,7 +178,7 @@ fn load_invocations(
 /// Each invocation's attributed time (see the module docs), in order.
 fn attributed_times(conn: &Connection, invocations: &[SkillInvocation]) -> Result<Vec<Duration>> {
     let mut window_stmt = conn.prepare(
-        "SELECT COALESCE(submit_at_us, start_at_us), COALESCE(stop_at_us, end_at_us)
+        "SELECT submit_at_us, stop_at_us
          FROM turns WHERE session_id = ?1 AND prompt_id = ?2",
     )?;
     let mut next_stmt = conn.prepare(

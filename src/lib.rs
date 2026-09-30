@@ -4,6 +4,7 @@
 //! `ingest` loads the spool (and, later, transcripts) into SQLite; `stats`
 //! answers typed queries over the archive; `web` renders them.
 
+pub mod activities;
 pub mod clock;
 pub mod db;
 pub mod hook;

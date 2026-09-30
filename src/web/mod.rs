@@ -8,6 +8,7 @@
 //! every page shows around its content: the filter bar and the banners.
 
 mod assets;
+mod coverage;
 mod error;
 mod filter_params;
 mod format;
@@ -52,8 +53,10 @@ fn app(state: AppState) -> Router {
     Router::new()
         .route("/", get(pages::overview::handler))
         .route("/tools", get(pages::tools::handler))
+        .route("/activities", get(pages::activities::handler))
         .route("/skills", get(pages::skills::handler))
         .route("/subagents", get(pages::subagents::handler))
+        .route("/models", get(pages::models::handler))
         .route("/sessions", get(pages::sessions::handler))
         .route("/sessions/{id}", get(pages::session::handler))
         .route("/refresh", post(refresh::handler))
@@ -96,8 +99,14 @@ pub async fn serve(paths: Paths, port: u16) -> Result<()> {
 fn run_catch_up(paths: &Paths) -> Result<String> {
     match ingest::catch_up(paths, &SystemClock) {
         Ok(IngestOutcome::Ran(report)) => Ok(format!(
-            "caught up: {} events, {} transcript lines",
-            report.events, report.transcript_lines
+            "caught up: {}{} events, {} transcript lines",
+            if report.rebuilt {
+                "rebuilt the archive once after the upgrade, "
+            } else {
+                ""
+            },
+            report.events,
+            report.transcript_lines
         )),
         Ok(IngestOutcome::AlreadyRunning) => {
             Ok("another ingest is running; it will pick up pending input".to_owned())

@@ -60,6 +60,7 @@ fn failed_calls_count_toward_the_tool_failure_rate() {
                     total_duration_ms: 1000,
                     median_duration_ms: Some(200),
                     p95_duration_ms: Some(400),
+                    timed_calls: 4,
                 },
             },
             RankedCalls {
@@ -70,6 +71,7 @@ fn failed_calls_count_toward_the_tool_failure_rate() {
                     total_duration_ms: 12,
                     median_duration_ms: Some(12),
                     p95_duration_ms: Some(12),
+                    timed_calls: 1,
                 },
             },
         ]
@@ -193,6 +195,7 @@ fn mcp_calls_are_grouped_by_server() {
                     total_duration_ms: 2200,
                     median_duration_ms: Some(700),
                     p95_duration_ms: Some(900),
+                    timed_calls: 3,
                 },
             },
             RankedCalls {
@@ -203,6 +206,7 @@ fn mcp_calls_are_grouped_by_server() {
                     total_duration_ms: 2000,
                     median_duration_ms: Some(2000),
                     p95_duration_ms: Some(2000),
+                    timed_calls: 1,
                 },
             },
         ]

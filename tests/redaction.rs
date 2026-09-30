@@ -414,6 +414,87 @@ fn no_secret_reaches_the_database() {
     );
 }
 
+/// Output text only a tool result carries.
+const TOOL_RESULT_MARKER: &str = "tool-result-body-4e1f9a";
+
+/// A transcript whose Bash call carries every secret in its input, and whose
+/// failed result carries them (and [`TOOL_RESULT_MARKER`]) in its output.
+fn transcript_with_secret_tool_call() -> String {
+    let envelope = |uuid: &str, parent: Option<&str>, timestamp: &str| {
+        json!({
+            "parentUuid": parent, "isSidechain": false, "uuid": uuid,
+            "timestamp": timestamp, "cwd": "/Users/alice/code/acme-api",
+            "sessionId": SESSION, "version": "2.1.284", "gitBranch": "main"
+        })
+    };
+    let mut prompt = envelope(
+        "f1000001-0000-4000-8000-000000000001",
+        None,
+        "2026-03-02T09:00:00.000Z",
+    );
+    prompt["type"] = json!("user");
+    prompt["promptId"] = json!("b1e2c3d4-5f60-4a7b-8c9d-0e1f2a3b4c5d");
+    prompt["message"] = json!({ "role": "user", "content": "Deploy it" });
+    let mut call = envelope(
+        "f1000002-0000-4000-8000-000000000002",
+        Some("f1000001-0000-4000-8000-000000000001"),
+        "2026-03-02T09:00:02.000Z",
+    );
+    call["type"] = json!("assistant");
+    call["message"] = json!({
+        "model": "claude-sonnet-4-6", "id": "msg_01SecretCall0001", "role": "assistant",
+        "content": [{
+            "type": "tool_use", "id": "toolu_01SecretBash0001", "name": "Bash",
+            "input": { "command": secret_text(), "api_key": SECRETS[9] }
+        }],
+        "usage": { "input_tokens": 3, "output_tokens": 40,
+                   "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0 }
+    });
+    let mut result = envelope(
+        "f1000003-0000-4000-8000-000000000003",
+        Some("f1000002-0000-4000-8000-000000000002"),
+        "2026-03-02T09:00:04.000Z",
+    );
+    result["type"] = json!("user");
+    result["promptId"] = json!("b1e2c3d4-5f60-4a7b-8c9d-0e1f2a3b4c5d");
+    let output = format!("{TOOL_RESULT_MARKER} {}", secret_text());
+    result["message"] = json!({ "role": "user", "content": [{
+        "type": "tool_result", "tool_use_id": "toolu_01SecretBash0001",
+        "is_error": true, "content": output
+    }]});
+    result["toolUseResult"] = json!(format!("Error: {output}"));
+    format!("{prompt}\n{call}\n{result}\n")
+}
+
+#[test]
+fn no_transcript_tool_input_secret_or_tool_result_reaches_the_database() {
+    let env = TestEnv::new();
+    env.drop_transcript(
+        &format!("{PROJECT}/{SESSION}.jsonl"),
+        &transcript_with_secret_tool_call(),
+    );
+    env.ingest();
+
+    let dump = every_stored_text(&env);
+    assert_no_secret(&dump);
+    assert!(
+        !dump.contains(TOOL_RESULT_MARKER),
+        "tool result content was stored"
+    );
+    // The redacted call is still analysed, as a failure.
+    let tools = env.tool_ranking(&Filter::default());
+    assert_eq!(tools.len(), 1, "{tools:#?}");
+    assert_eq!(
+        (tools[0].name.as_str(), tools[0].stats.failures),
+        ("Bash", 1)
+    );
+
+    claudit::ingest::reingest(&env.paths).expect("reingest succeeds");
+    let dump = every_stored_text(&env);
+    assert_no_secret(&dump);
+    assert!(!dump.contains(TOOL_RESULT_MARKER));
+}
+
 #[test]
 fn no_secret_reaches_the_database_after_a_reingest() {
     let env = TestEnv::new();

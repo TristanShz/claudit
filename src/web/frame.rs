@@ -1,5 +1,6 @@
 //! What every page shows around its content: the filter bar (with the
-//! last ingest time and the Refresh button) and the status banners.
+//! last ingest time and the Refresh button) and the status banners, plus
+//! the activity rules every page may classify tool calls with.
 
 use std::sync::atomic::Ordering;
 
@@ -8,6 +9,7 @@ use rusqlite::Connection;
 use super::AppState;
 use super::filter_params::FilterParams;
 use super::format;
+use crate::activities::ActivityRules;
 use crate::stats::filter_options::{self, FilterOptions};
 use crate::stats::ingest_status::{self, IngestStatus};
 
@@ -28,6 +30,10 @@ pub(super) struct Frame {
     pub warning: Option<IngestWarning>,
     /// Anything was ever recorded (else the empty state is shown).
     pub has_data: bool,
+    /// The activity rules: the user's file over the built-in rules.
+    pub rules: ActivityRules,
+    /// Why `$CLAUDIT_HOME/activities.toml` was ignored, if it was.
+    pub rules_problem: Option<String>,
 }
 
 /// The ingest warning banner (shown when transcript lines were skipped).
@@ -48,6 +54,7 @@ impl Frame {
     ) -> anyhow::Result<Self> {
         let status: IngestStatus = ingest_status::ingest_status(conn)?;
         let query = filters.query();
+        let loaded = ActivityRules::load(&state.paths);
         Ok(Self {
             filter_action: if filtered { path } else { "/" }.to_owned(),
             current: format!("{path}{query}"),
@@ -63,6 +70,8 @@ impl Frame {
                 log_path: state.paths.log_file().display().to_string(),
             }),
             has_data: status.has_data,
+            rules: loaded.rules,
+            rules_problem: loaded.problem,
         })
     }
 }

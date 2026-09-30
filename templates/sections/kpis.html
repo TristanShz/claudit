@@ -2,12 +2,12 @@
   <div class="kpi">
     <div class="kpi-label">Sessions</div>
     <div class="kpi-value">{{ kpis.sessions }}</div>
-    <div class="kpi-sub">{{ kpis.turns }} completed turn{% if kpis.turns != 1 %}s{% endif %}</div>
+    <div class="kpi-sub">{{ kpis.turns }} turn{% if kpis.turns != 1 %}s{% endif %}</div>
   </div>
   <div class="kpi">
     <div class="kpi-label">Active time</div>
     <div class="kpi-value">{{ kpis.active_time }}</div>
-    <div class="kpi-sub">prompt to answer, summed</div>
+    <div class="kpi-sub">prompt to answer, summed{% if !time_note.empty %} · hook-recorded sessions{% else %} · no hook-recorded session{% endif %}</div>
   </div>
   <div class="kpi">
     <div class="kpi-label">Tool calls</div>

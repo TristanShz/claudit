@@ -206,14 +206,16 @@ fn a_subagent_known_only_from_its_transcript_is_still_reported() {
     drop_session_a_transcripts(&env);
     env.ingest();
 
-    // First to last subagent entry: 09:05:03 → 09:06:05.
+    // No hook timed it: no duration (its transcript's span would include
+    // any permission prompt inside the run).
     assert_eq!(
         env.subagents(&Filter::default()),
         [SubagentTypeStat {
             agent_type: "general-purpose".into(),
             runs: 1,
-            total_duration: Duration::seconds(62),
-            tool_calls: 0,
+            total_duration: Duration::zero(),
+            // Its Read call, from the tool_use / tool_result pair.
+            tool_calls: 1,
             model: Some(HAIKU.into()),
             tokens: subagent_tokens(),
         }]

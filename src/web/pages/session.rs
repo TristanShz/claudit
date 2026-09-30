@@ -1,5 +1,5 @@
 //! The session page (`/sessions/{id}`): header, KPIs, turn timeline, the
-//! session's tools, skills and subagents.
+//! session's activities, tools, skills and subagents.
 
 use std::sync::Arc;
 
@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::db;
 use crate::pricing::PriceTable;
+use crate::stats::activities;
 use crate::stats::session_detail::{self, SessionDetail};
 use crate::stats::skills::SkillTrigger;
 use crate::stats::time::{SegmentKind, TimeSplit, TurnTime};
@@ -19,18 +20,27 @@ use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
 use crate::web::frame::Frame;
-use crate::web::rows::{self, RunRow, ToolRow};
+use crate::web::rows::{self, ActivityRow, RunRow, ToolRow};
 
 #[derive(Template)]
 #[template(path = "pages/session.html")]
 struct SessionPage {
     frame: Frame,
     header: Header,
+    /// Known only from its transcripts: no KPIs nor timeline, an
+    /// explanation instead.
+    imported: bool,
+    /// Activity bars show calls (nothing in the session was hook-timed).
+    activities_by_calls: bool,
     kpis: Vec<Kpi>,
     timeline_json: String,
     /// CSS height of the timeline, from its number of lanes.
     timeline_height: usize,
+    /// Timed turns (timeline lanes).
     turns: usize,
+    /// Every turn, timed or not.
+    turn_count: u64,
+    activities: Vec<ActivityRow>,
     tools: Vec<ToolRow>,
     skills: Vec<SkillUse>,
     subagents: Vec<RunRow>,
@@ -228,7 +238,11 @@ fn header(detail: &SessionDetail) -> Header {
             .unwrap_or_default(),
         cost: format::cost(&detail.cost),
         tool_calls: detail.tools.iter().map(|t| t.stats.calls).sum(),
-        active_time: format::duration(detail.time.wall()),
+        active_time: if detail.imported {
+            "–".to_owned()
+        } else {
+            format::duration(detail.time.wall())
+        },
     }
 }
 
@@ -247,13 +261,19 @@ pub(in crate::web) async fn handler(
         let path = format!("/sessions/{}", detail.session_id);
         let frame = Frame::load(&conn, &state, filters, &path, false)?;
         let turns = detail.turns.len();
+        let breakdown = activities::session_activities(&conn, &detail.session_id, &frame.rules)?;
+        let activities = rows::activity_rows(&breakdown);
         Ok(Some(SessionPage {
             frame,
             header: header(&detail),
+            imported: detail.imported,
+            activities_by_calls: rows::activities_by_calls(&breakdown),
             kpis: kpis(&detail),
             timeline_json: format::script_json(&timeline(&detail.turns))?,
             timeline_height: 60 + 46 * turns.max(1),
             turns,
+            turn_count: detail.turn_count,
+            activities,
             skills: detail
                 .skills
                 .iter()

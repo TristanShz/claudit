@@ -62,19 +62,21 @@ flowchart LR
 | `src/ingest/lock.rs` | `IngestLock`: non-blocking `flock` on `ingest.lock`. |
 | `src/ingest/offsets.rs` | Byte offsets per file identity (path + inode); `read_complete_lines`. |
 | `src/ingest/spool.rs` | Spool files → `raw_events` + projection, one transaction per file. |
-| `src/ingest/events/` | `RawEvent`, `archive`, and `project`: one module per hook event, plus shared `tool_call`, `skill_tool`, `agent_tool`, `subagent_runs`. |
+| `src/ingest/events/` | `RawEvent`, `archive`, and `project`: one module per hook event, plus shared `tool_call` (every write to `tool_calls`, hooks and transcripts, and the timing precedence), `skill_tool`, `agent_tool`, `subagent_runs`. |
 | `src/ingest/bash_command.rs` | The leading command of a Bash call (`git`, `cargo`, …). |
-| `src/ingest/transcripts/` | Transcript files → `sessions`, `turns`, `api_messages`, `transcript_entries`, `subagent_runs`. `entry.rs` is the tolerant line parser. |
+| `src/ingest/transcripts/` | Transcript files → `sessions`, `turns`, `api_messages`, `transcript_entries`, `subagent_runs`, `tool_calls`. `entry.rs` is the tolerant line parser. |
 | `src/ingest/purge.rs` | Spool purge. |
 | `src/ingest/reingest.rs` | Reset-and-replay, `DERIVED_TABLES`, `KEPT_TABLES`. |
 | `src/pricing.rs` | `PriceTable` (from `pricing/prices.toml`), `Usd` (exact picodollars), `Cost`. |
-| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `consumption`, `cost`, `sessions`, `time`, `tools`, `skills`, `subagents`, `ingest_status`. |
+| `src/activities.rs` | `ActivityRules` (from `activities/rules.toml`, plus the user's `activities.toml`): classifies a tool call into an activity and a detail. |
+| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `sessions`, `time`, `tools`, `skills`, `subagents`, `ingest_status`. |
 | `src/web/` | axum router bound to `127.0.0.1`, one module per page under `pages/`, embedded assets (`assets.rs`), query-string filters (`filter_params.rs`), display helpers (`format.rs`). |
 | `templates/` | Askama templates: `base.html`, `pages/`, `sections/` (one per dashboard section), `partials/`. |
 | `assets/` | htmx, ECharts, `claudit.js` (chart renderers), `claudit.css`; compiled into the binary. |
 | `migrations/` | SQL migrations, applied in file-name order. |
 | `redaction/patterns.toml` | Versioned secret patterns, compiled in. |
 | `pricing/prices.toml` | Versioned API price table, compiled in. |
+| `activities/rules.toml` | Versioned built-in activity rules, compiled in. |
 | `examples/demo_archive.rs` | Builds a demo archive from the test fixtures (screenshots, manual browser checks). |
 
 ## Files on disk
@@ -89,6 +91,7 @@ flowchart LR
 | `ingest.lock` | The single-writer ingest lock. |
 | `ingest.pending` | Present when an ingest found the lock taken since the holder's last round; the holder runs again after releasing the lock. |
 | `logs/claudit.log` | `<timestamp> ERROR [<component>] <message>`, redacted. |
+| `activities.toml` | Optional user activity rules, read by `claudit serve` on every page (see [Activities](#activities)). |
 | `install-state.json` | What install changed, for uninstall (`install::InstallRecord`): the `cleanupPeriodDays` value it replaced and the hook containers (`hooks` object, event arrays) it created. |
 
 Claude Code's side (`CLAUDE_CONFIG_DIR`, default `~/.claude`) is only read,
@@ -106,7 +109,9 @@ is rebuilt by `claudit reingest`.
 ### Bookkeeping (kept by reingest)
 
 **`meta`** (`key` PK, `value`): `schema_version` (latest migration id),
-`redaction_patterns_version`, `transcripts_skipped_lines` (cumulative count
+`redaction_patterns_version`, `derivation_version` (the
+`ingest::DERIVATION_VERSION` the derived tables were built with, see
+[Reingest](#ingest-pipeline)), `transcripts_skipped_lines` (cumulative count
 of unknown transcript lines), `transcripts_backfilled_at_us` (when the first
 full pass over the transcripts finished).
 
@@ -127,8 +132,25 @@ how far each spool file and transcript has been read.
 ### Derived from hooks
 
 **`tool_calls`**: one row per tool call, key `tool_use_id`. Filled by
-`PreToolUse` (`pre_at_us`) and `PostToolUse` / `PostToolUseFailure` (the
-rest).
+`PreToolUse`, `PostToolUse` / `PostToolUseFailure`, and by the transcripts
+(an assistant entry's `tool_use` block, then a user entry's `tool_result`
+block), so sessions recorded before `claudit install` have tool calls too.
+Each source keeps its own timing (`hook_*`, `transcript_*`); after every
+write the effective timing columns are resolved from them
+(`events::tool_call::resolve_timing`), a pure function of the stored facts,
+so any ingest order and a reingest give the same row:
+
+1. the hooks saw the call complete (`hook_post_at_us`): hook timing;
+2. else the transcript has its `tool_result`: transcript timing, with
+   `duration_ms` = result − tool_use time (it includes any permission
+   prompt, so no report uses it as a duration: reports read the `hook_*`
+   columns, see [Time decomposition](#time-decomposition));
+3. else the call is still running or was interrupted: only `pre_at_us`,
+   and the call is left out of every report until its result arrives (in a
+   later ingest, if it is in a later chunk of the transcript).
+
+Identity columns (prompt, agent, input, cwd) are filled by whichever source
+comes first; `PostToolUse` overwrites them with its own.
 
 | Column | Meaning |
 | --- | --- |
@@ -140,10 +162,13 @@ rest).
 | `bash_command` | Leading command of a Bash call. |
 | `tool_input` | Redacted input JSON. |
 | `cwd` | Working directory of the call. |
-| `pre_at_us`, `post_at_us` | `PreToolUse` and `PostToolUse(Failure)` receive times. |
-| `duration_ms` | Execution time as reported by Claude Code (excludes permission prompts). |
-| `success` | 1 for `PostToolUse`, 0 for `PostToolUseFailure`. |
-| `error` | Error text of a failure (redacted). |
+| `pre_at_us`, `post_at_us` | Effective: `PreToolUse` and `PostToolUse(Failure)` receive times, or the `tool_use` and `tool_result` entry timestamps. |
+| `duration_ms` | Effective: execution time as reported by Claude Code (excludes permission prompts), or the transcript estimate `post − pre`. |
+| `success` | Effective: 1 for `PostToolUse`, 0 for `PostToolUseFailure`; from a transcript, 0 when the `tool_result` has `is_error: true`. |
+| `timing_source` | `hook` or `transcript`: where the effective timing comes from (`transcript` = estimated duration). |
+| `hook_pre_at_us`, `hook_post_at_us`, `hook_duration_ms`, `hook_success` | What the hooks recorded. |
+| `transcript_pre_at_us`, `transcript_post_at_us`, `transcript_success` | What the transcript recorded (never the result's content). |
+| `error` | Error text of a hook-reported failure (redacted). Not taken from transcripts, whose error text is the tool's output. |
 
 **`permission_requests`**: one row per `PermissionRequest`. PK
 (`session_id`, `at_us`, `tool_name`); also `prompt_id`, `agent_id`,
@@ -182,9 +207,9 @@ ingested first.
 | `start_at_us`, `end_at_us` | Earliest and latest main-thread transcript entry. |
 | `submit_at_us`, `stop_at_us` | `UserPromptSubmit` and `Stop` receive times. |
 
-Readers use `COALESCE(submit_at_us, start_at_us)` and
-`COALESCE(stop_at_us, end_at_us)`: hook times when there are hooks,
-transcript times for backfilled sessions.
+Time reports use `submit_at_us` and `stop_at_us` only (a turn without both
+is not timed); ordering and date filters of consumption reports use
+`COALESCE(submit_at_us, start_at_us)`, so imported turns are still counted.
 
 **`api_messages`**: one row per API response, key `message_id`
 (`message.id`). `session_id`, `prompt_id`, `agent_id` (`NULL` on the main
@@ -282,8 +307,9 @@ archived or projected, `sanitize_hook_payload`:
   `secret|key|token|password|passwd`.
 
 Transcript text (prompts, and each session's working directory and git
-branch) goes through `redact_str` as soon as it is extracted; assistant text
-and tool results are never extracted. The error
+branch) goes through `redact_str`, and tool inputs through `redact_value`,
+as soon as they are extracted; assistant text and tool results are never
+extracted (of a `tool_result`, only its `tool_use_id` and `is_error`). The error
 log is redacted too. Sanitizing is idempotent, so it is safe to re-apply.
 
 **Reingest** (`claudit reingest`, `src/ingest/reingest.rs`) waits up to 60 s
@@ -299,7 +325,19 @@ for the ingest lock, then, in one transaction:
 3. replays `raw_events` in `id` order through the same `events::project`.
 
 It then runs a normal ingest pass, which re-reads every transcript still on
-disk from the start. `KEPT_TABLES` (`meta`, `schema_migrations`,
+disk from the start.
+
+**One-time rebuild after an upgrade.** Transcripts read to their end are
+never read again, so a release that derives more from them (tool calls from
+transcripts, `DERIVATION_VERSION` 1) would never see the old ones. The
+catch-up (`claudit ingest`, `serve`'s start) therefore compares the
+`derivation_version` in `meta` with `ingest::DERIVATION_VERSION` under the
+lock: if it is older or missing and the archive is not empty, it runs the
+reset-and-replay above before its passes (logged as `INFO` in
+`logs/claudit.log`, reported as `IngestReport::rebuilt`), then stores the
+current version, so it happens once. A new archive just stores the version.
+`claudit reingest` stores it too. Bump the constant whenever ingest derives
+more from input it has already read. `KEPT_TABLES` (`meta`, `schema_migrations`,
 `raw_events`, `ingest_offsets`) are left alone. A unit test fails when a table
 exists in neither list.
 
@@ -309,21 +347,30 @@ token counts of sessions whose transcripts are gone are lost by a reingest.
 
 ## Time decomposition
 
-Defined in `src/stats/time.rs`. For each **main-thread turn** with both a
-start and an end:
+Defined in `src/stats/time.rs`. **Time is measured only from hook-recorded
+data.** A session with no hook data at all is **imported** (known only from
+its transcripts: it ran before `claudit install`); it counts for
+consumption (sessions, turns, tokens, cost, models, skills, subagents' tokens,
+tool calls, failures, activity call counts) but never for time, because a
+transcript's timestamps include permission prompts, idle time and background
+tasks. `stats::time::time_coverage` reports how many filtered sessions were
+recorded with hooks and how many are imported, for the dashboard's coverage
+notes. For each **main-thread turn** with both a `UserPromptSubmit` and a
+`Stop` hook:
 
-- **start** = `UserPromptSubmit` receive time, else the turn's first
-  transcript entry; **end** = `Stop` receive time, else its last transcript
-  entry. **Wall** = end − start. The fallback applies per bound, so a turn
-  whose `UserPromptSubmit` or `Stop` hook is missing (a backfilled session,
-  a hook Claude Code failed to run, an interrupted turn) still gets a wall
-  time from its transcript.
-- The turn's main-thread tool calls (`agent_id IS NULL`, with a
-  `post_at_us`) give intervals:
+- **start** = `UserPromptSubmit` receive time; **end** = `Stop` receive
+  time; **wall** = end − start. A turn missing either hook (an imported
+  session, a hook Claude Code failed to run, an interrupted turn) is not
+  timed; there is no transcript fallback.
+- The turn's main-thread tool calls the hooks timed (`agent_id IS NULL`,
+  with a `hook_post_at_us`) give intervals:
   - **execution** = `[post − duration_ms, post]` (or `[pre, post]` when no
     duration is known);
   - **waiting** = `[pre, execution start]` when positive: the call was
-    announced (`PreToolUse`) but had not started, i.e. a permission prompt.
+    announced (`PreToolUse`) but had not started, i.e. a permission prompt;
+  - a call known only from its transcript gives no interval (it would
+    carry its permission prompt as tool time). Each call is one row
+    whichever sources saw it, so it counts once, with the hook timing.
 - Calls to `Agent` / `Task` are **subagent** intervals; every other call's
   execution is a **tool** interval. Calls made *inside* a subagent carry an
   `agent_id` and are never main-thread time.
@@ -351,9 +398,15 @@ and tokens are still reported separately (`stats::subagents`). `TurnTime.segment
 positioned, gap-free segments, which the session timeline draws.
 
 Aggregates (`time_breakdown`) sum turns, and assign each turn to the UTC day
-it started. `waiting_by_tool` is a different measure: per tool, the sum over
+it started. The same hook-only rule applies everywhere time appears: tool
+durations and percentiles (`stats::tools`, `CallStats::timed_calls` of
+`calls`), activity time (`stats::activities`), skills' attributed time (the
+turn's hook window), and subagent durations (`totalDurationMs` from the
+Agent tool response, else that call's hook duration; never a transcript
+span). `waiting_by_tool` is a different measure: per tool, the sum over
 calls (subagent calls included) of `max(0, post − duration − pre)`, not
-unioned, alongside the count of `PermissionRequest` events for that tool.
+unioned, alongside the count of `PermissionRequest` events for that tool;
+only hook-timed calls can be measured.
 
 ## Cost computation
 
@@ -380,6 +433,32 @@ matches exactly: a model missing from the table is reported as unknown
 (`Cost.unknown_models`, `unknown_tokens`) rather than priced as its family.
 Because cost is computed at query time, correcting the table and rebuilding
 reprices the whole archive without re-ingesting.
+
+`stats::models::model_usage` prices the same sums per model and thread
+(main thread vs subagents), and reports each model's share of the filtered
+tokens and of the *priced* cost (a model the table lacks has no cost share,
+and the others' shares are then shares of the known part).
+
+## Activities
+
+`src/activities.rs` classifies a tool call (tool name, MCP server, the
+`bash_command` column and `tool_input.command`) with an ordered list of
+rules: the user's `$CLAUDIT_HOME/activities.toml` first, then the built-in
+`activities/rules.toml`. The first rule whose tool glob, optional leading
+command glob and optional regex (searched in each simple command of the
+line, see the README) all match gives the activity; otherwise it is
+`Other shell` (Bash) or `Other`. Each call also gets a **detail**: for Bash
+the command normalized to program + subcommand (`cargo test`,
+`pnpm exec vitest`, `python -m pytest`), for MCP the server, otherwise the
+tool name.
+
+Like cost, nothing classified is stored: `stats::activities` reads the
+filtered `tool_calls` rows and classifies them in Rust, classifying each
+distinct call once per report (about 30–70 ms for 50 000 calls in a release
+build), so a rule change applies to the whole archive without a reingest.
+The dashboard loads the rules on every page (`web::frame`), keeping the last
+compiled user file while its text is unchanged; an invalid file is logged
+once per distinct problem, ignored, and reported in a banner.
 
 ## The stats API
 

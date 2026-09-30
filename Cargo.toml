@@ -1,6 +1,6 @@
 [package]
 name = "claudit"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Local analytics for Claude Code sessions: hook capture, SQLite archive, local dashboard"
@@ -20,6 +20,7 @@ include = [
     "/templates/**/*.html",
     "/assets/*",
     "/pricing/prices.toml",
+    "/activities/rules.toml",
     "/redaction/patterns.toml",
     "/README.md",
     "/ARCHITECTURE.md",

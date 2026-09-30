@@ -1,0 +1,17 @@
+{
+  "session_id": "9f4c2b7a-5e6d-4f8a-b1c2-3d4e5f6a7b8c",
+  "prompt_id": "a1b2c3d4-0009-4000-8000-000000000009",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-acme-api/9f4c2b7a-5e6d-4f8a-b1c2-3d4e5f6a7b8c.jsonl",
+  "cwd": "/Users/alice/code/acme-api",
+  "permission_mode": "acceptEdits",
+  "hook_event_name": "PostToolUseFailure",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cargo test -p api",
+    "description": "Run the api tests"
+  },
+  "tool_use_id": "toolu_01Activities0000000002",
+  "duration_ms": 8000,
+  "error": "Exit code 101\n1 test failed",
+  "is_interrupt": false
+}

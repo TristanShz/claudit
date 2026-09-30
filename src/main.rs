@@ -141,6 +141,11 @@ fn uninstall(paths: &Paths) -> Result<()> {
 fn catch_up(paths: &Paths) -> Result<()> {
     match claudit::ingest::catch_up(paths, &SystemClock) {
         Ok(IngestOutcome::Ran(report)) => {
+            if report.rebuilt {
+                println!(
+                    "rebuilt the archive once (derived by an older claudit), as `claudit reingest` would"
+                );
+            }
             println!(
                 "ingested {} events ({} skipped lines, {} unprojected events)",
                 report.events, report.skipped_lines, report.unprojected_events

@@ -9,11 +9,20 @@ SQLite archive and serves a local dashboard to analyze them after the fact:
   Claude waiting on you (permission prompts), subagents;
 - **tools**: call counts, median and p95 durations, failure rates, broken
   down by Bash command (`git`, `cargo`, …) and by MCP server;
+- **activities**: what the tools spend their time on (running tests,
+  building, linting, git, installing dependencies, searching, reading and
+  editing files, the web, subagents, MCP, …), with time, calls, failure
+  rate, median and p95 per activity, its top commands (`cargo test`,
+  `pnpm test`), a daily chart and a per-session breakdown. The rules are
+  yours to extend (see [Activities](#activities));
 - **skills**, split by who triggered them (you typing `/skill`, or Claude
   calling the Skill tool), with their attributed time and tokens;
 - **subagents** by type, with duration, tool calls, model and tokens;
 - **tokens** (input, output, cache write, cache read) and an
-  **API-equivalent cost** per session, model, skill and day.
+  **API-equivalent cost** per session, model, skill and day;
+- **models**: sessions, API responses, tokens, cache-read share and cost per
+  model, with its share of all tokens and cost, split between the main
+  thread and subagents.
 
 It runs entirely on your machine: no account, no telemetry, no network.
 
@@ -40,6 +49,23 @@ catches up on pending ingestion first, and stops on Ctrl-C.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full data flow and data model.
 
+### Imported sessions vs sessions recorded with hooks
+
+Sessions from before `claudit install` are **imported** from their
+transcripts. They count everywhere consumption is reported: sessions, turns,
+tokens, cost, models, skills' tokens, subagents' tokens, tool calls,
+failures, Bash commands, MCP servers and activity call counts.
+
+**Time is measured only on sessions recorded with the hooks.** A
+transcript's timestamps include permission prompts, idle time and background
+work (a turn left waiting for an hour reads as an hour of "model" time), so
+imported sessions contribute no time at all: no "Where the time goes", no
+waiting, no active time, no tool durations or percentiles, no activity time,
+no subagent durations. The dashboard tags them `imported`, shows `–` for
+their durations, and each time section says how many sessions it covers
+("Time measured on N sessions recorded with hooks since …; X imported
+sessions not included").
+
 ## What is captured, and what never is
 
 **Stored** (after redaction, see below):
@@ -54,7 +80,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full data flow and data model.
 - from transcripts: session metadata (working directory, git branch, Claude
   Code version), turn timings, permission mode and effort, and for each API
   response the model, timestamp, token counts and the skill or subagent it is
-  attributed to.
+  attributed to; for each tool call its name, input, timestamps and whether
+  it failed (not the error text).
 
 **Never stored:**
 
@@ -66,7 +93,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full data flow and data model.
 - **assistant responses**: the text Claude writes back
   (`last_assistant_message` on `Stop`/`SubagentStop`, and assistant message
   content in transcripts) is never read into the archive;
-- tool results inside transcripts.
+- tool results inside transcripts (only whether a result is an error is
+  read).
 
 The raw spool file holds the untouched payload only until it has been
 ingested; it is deleted once its session has ended (or after 24 hours of
@@ -100,7 +128,7 @@ inactivity for sessions that never ended cleanly).
 macOS (Apple silicon or Intel):
 
 ```sh
-VERSION=v0.1.0
+VERSION=v0.2.0
 TARGET="$([ "$(uname -m)" = arm64 ] && echo aarch64 || echo x86_64)-apple-darwin"
 mkdir -p ~/.local/bin
 curl -fsSL "https://github.com/TristanShz/claudit/releases/download/$VERSION/claudit-$VERSION-$TARGET.tar.gz" \
@@ -127,14 +155,14 @@ added and keeps your archive in `~/.claudit`.
 | `claudit uninstall` | Removes them and restores `cleanupPeriodDays`. |
 | `claudit serve [--port N]` | Catches up on pending ingestion, then serves the dashboard on `127.0.0.1:N` (default 8421) until Ctrl-C. |
 | `claudit ingest` | Loads new spooled events and transcripts into the archive. Runs automatically after each turn; safe to run by hand at any time (it is incremental, deduplicated and exits at once if another ingest is running). |
-| `claudit reingest` | Rebuilds every derived table from the archived hook events plus the transcripts still on disk, re-applying the current redaction patterns. Use it after an upgrade that changes the schema, the parser or the patterns. |
+| `claudit reingest` | Rebuilds every derived table from the archived hook events plus the transcripts still on disk, re-applying the current redaction patterns. After an upgrade that derives more from the archive (e.g. tool calls from transcripts), the next ingest runs it once by itself; run it by hand after an upgrade that changes the parser or the patterns. |
 | `claudit hook` | Records one hook payload from stdin. Run by Claude Code, not by hand. |
 
 ### Environment variables
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `install-state.json`, `ingest.lock`, `ingest.pending`. |
+| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `install-state.json`, `ingest.lock`, `ingest.pending`, and your optional `activities.toml`. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's configuration directory: `settings.json` and the `projects/` transcripts. Set it the same way you set it for Claude Code. |
 
 Hooks inherit Claude Code's environment, so a `CLAUDIT_HOME` set in the
@@ -147,6 +175,62 @@ Everything that fails inside the hook or a background ingest is appended to
 that is not valid JSON is logged and archived as raw text (redacted) instead
 of being dropped. Transcript lines of an unknown shape are skipped, counted
 and logged; the dashboard shows a banner when there are any.
+
+## Activities
+
+Every tool call is assigned an **activity** by an ordered list of rules: the
+first rule that matches wins, and a call no rule matches is *Other shell*
+(Bash) or *Other*. The built-in rules
+([`activities/rules.toml`](activities/rules.toml)) cover tests (`cargo
+test`, `pnpm test`, `pytest`, `go test`, `npx vitest`, …), build and
+typecheck, lint and format, git and GitHub, dependencies, running scripts,
+searching, reading and editing files, the web, subagents, skills, MCP (by
+server) and planning tools. Calls are classified when a page is shown, so
+changing the rules reclassifies your whole history, without a reingest.
+
+To add activities or reclassify calls, create
+`$CLAUDIT_HOME/activities.toml` (`~/.claudit/activities.toml`) in the same
+format. Your rules are tried **before** the built-in ones:
+
+```toml
+version = "1"              # optional, shown on the Activities page
+
+# Your end-to-end suite gets its own activity.
+[[rule]]
+activity = "E2E tests"
+tools = ["Bash"]
+pattern = '^(?:pnpm|npm)\s+(?:run\s+)?e2e\b'
+
+# Count `cargo clippy` as building rather than linting.
+[[rule]]
+activity = "Build & typecheck"
+tools = ["Bash"]
+commands = ["cargo"]
+pattern = '^cargo\s+clippy\b'
+
+# One MCP server as an activity of its own.
+[[rule]]
+activity = "Browser"
+tools = ["mcp__claude-in-chrome__*"]
+```
+
+A rule has:
+
+| Key | Required | Matches |
+| --- | --- | --- |
+| `activity` | yes | The activity name it assigns (a new one or a built-in one). |
+| `tools` | yes | Tool names; `*` and `?` are wildcards (`mcp__*`). |
+| `commands` | no | The Bash call's leading command, as on the Tools page (`cd web && pnpm test` → `pnpm`); wildcards allowed. |
+| `pattern` | no | A regular expression ([Rust syntax](https://docs.rs/regex/latest/regex/#syntax)) searched in each simple command of the Bash command line: the line is split at `&&`, `\|\|`, `;`, `\|`, `&` and newlines (outside quotes, here-documents skipped), `VAR=value` prefixes and `sudo`/`env`/`time`/`timeout N`/`nohup` wrappers are removed, and the program is reduced to its file name (`./gradlew test` → `gradlew test`). Start it with `^` to mean "a command that starts with". |
+
+A rule matches when the tool matches and, when given, the leading command
+and the pattern match too. If the file cannot be read or is invalid, it is
+ignored (the built-in rules still apply), the error is logged to
+`logs/claudit.log`, and the dashboard shows a banner naming the problem.
+
+Time is each call's own execution time (`duration_ms`), summed: parallel
+calls add up, and calls made inside a subagent count in their activity as
+well as in the Agent call's *Subagents* time.
 
 ## Querying the archive with SQL
 
@@ -166,10 +250,10 @@ in `_us`); `datetime(x / 1000000, 'unixepoch')` makes them readable. The
 tables are described in [ARCHITECTURE.md](ARCHITECTURE.md#data-model).
 
 ```sql
--- Most used tools, with failures and total execution time.
+-- Most used tools, with failures and total execution time (hook-timed).
 SELECT tool_name, COUNT(*) AS calls,
        SUM(success = 0) AS failures,
-       ROUND(SUM(duration_ms) / 1000.0, 1) AS total_s
+       ROUND(SUM(hook_duration_ms) / 1000.0, 1) AS total_s
 FROM tool_calls
 GROUP BY tool_name ORDER BY calls DESC LIMIT 15;
 
@@ -196,7 +280,7 @@ SELECT skill, trigger, COUNT(*) AS invocations
 FROM skill_invocations
 GROUP BY skill, trigger ORDER BY invocations DESC;
 
--- Your last ten prompts.
+-- Your last ten prompts (hook time, else transcript time).
 SELECT datetime(COALESCE(submit_at_us, start_at_us) / 1000000, 'unixepoch') AS at,
        substr(prompt_text, 1, 80) AS prompt
 FROM turns ORDER BY COALESCE(submit_at_us, start_at_us) DESC LIMIT 10;
@@ -220,10 +304,12 @@ redacted hook payload as JSON, so it is the most stable thing to query.
   Code release. Parsing is tolerant: lines of an unknown shape are skipped and
   counted rather than failing the ingest, and the raw hook events are kept so
   `claudit reingest` can recover fields a newer parser understands.
-- **Only sessions with the hooks installed have full timing.** Backfilled
-  sessions (from before `claudit install`) have tokens, turns and costs from
-  their transcripts, but no tool calls, permission waits or skill triggers,
-  which come from hooks.
+- **Only sessions recorded with the hooks have time.** Imported sessions
+  (from before `claudit install`) have tokens, turns, costs and tool calls
+  from their transcripts, but no time, permission waits or skill triggers
+  (see [above](#imported-sessions-vs-sessions-recorded-with-hooks)). When
+  a hook and a transcript both saw a call, it counts once, with the hook's
+  timing.
 - **Time is measured from hook receive times**, so it includes the small
   delay Claude Code takes to start each hook process.
 - Redaction is pattern based and cannot recognize every secret. Prompts and

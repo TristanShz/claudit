@@ -33,9 +33,15 @@ pub struct SessionDetail {
     /// Tokens of every API response, subagents included.
     pub tokens: TokenTotals,
     pub cost: Cost,
-    /// Its turns' split, summed.
+    /// Every turn (user prompt) of the session, timed or not.
+    pub turn_count: u64,
+    /// Known only from its transcripts (see [`super::sessions`]): no time,
+    /// no timeline, no tool durations.
+    pub imported: bool,
+    /// Its hook-timed turns' split, summed.
     pub time: TimeSplit,
-    /// Main-thread turns, oldest first, with their positioned segments.
+    /// Main-thread turns the hooks timed, oldest first, with their
+    /// positioned segments.
     pub turns: Vec<TurnTime>,
     /// Its tools, subagents' calls included (ranked as `tool_ranking`).
     pub tools: Vec<RankedCalls>,
@@ -123,6 +129,19 @@ pub fn session_detail(
         .optional()?;
 
     let cost = cost::session_cost(conn, session_id, prices)?;
+    let turn_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM turns WHERE session_id = ?1",
+        [session_id],
+        |row| row.get(0),
+    )?;
+    let imported: bool = conn.query_row(
+        &format!(
+            "SELECT {} FROM (SELECT ?1 AS session_id) s",
+            super::sessions::IMPORTED
+        ),
+        [session_id],
+        |row| row.get(0),
+    )?;
 
     let mut time = TimeSplit::default();
     for turn in &turns {
@@ -146,6 +165,8 @@ pub fn session_detail(
         model,
         tokens: cost.tokens,
         cost: cost.cost,
+        turn_count: turn_count.max(0) as u64,
+        imported,
         time,
         turns,
         tools,

@@ -51,8 +51,9 @@ offsets or internal helpers, so the storage schema can change freely. If a
 behavior can't be observed through a stats report, the report is probably
 missing. The only sanctioned exceptions are properties that no report can
 express: "no secret string survives anywhere in the database"
-(`tests/redaction.rs` dumps every text cell) and file permissions
-(`tests/permissions.rs`).
+(`tests/redaction.rs` dumps every text cell), file permissions
+(`tests/permissions.rs`), and the setup of "an archive an older claudit
+derived" (`tests/derivation_upgrade.rs`), whose assertions stay on reports.
 
 There are no tests on the HTTP layer or the templates: handlers only call
 the stats API and render. One explicit exception: `tests/web_pages.rs` is a
@@ -79,8 +80,13 @@ Fixtures live in `tests/fixtures/`:
   (e.g. `post_tool_use_bash.json`);
 - `transcripts/projects/…`: a mirror of `~/.claude/projects`, including a
   subagent transcript and its `.meta.json`;
+- `hooks/activities/`: a synthetic hook-only session of test, build, git and
+  edit calls for `tests/activities.rs` (replayed by
+  `TestEnv::replay_activities_session`, outside the default fixture archive);
 - `transcripts/cost/…`: transcripts for cost tests, kept out of `projects/`
   so the totals documented for `projects/` stay valid;
+- `transcripts/tool_calls/…`: a backfilled session for tool calls read from
+  transcripts, kept out of `projects/` for the same reason;
 - `settings/*.json`: Claude Code settings files for seam 2;
 - `hooks/captured-<version>/` and `transcripts/captured-<version>/`: one real
   session captured from Claude Code `<version>`, anonymized
@@ -180,6 +186,10 @@ A derived `meta` key belongs in `DERIVED_META_KEYS`.
 - `pricing/prices.toml`: update `version` (the date prices were read) and
   `source`; prices have at most 6 decimals. Add aliases rather than fuzzy
   matching.
+- `activities/rules.toml`: bump `version` (the date of the change); order
+  matters (first match wins, so specific shell rules go before catch-alls
+  like "Run & scripts"). Add the commands you meant to cover to the table
+  in the unit tests of `src/activities.rs`.
 
 ## Screenshots
 

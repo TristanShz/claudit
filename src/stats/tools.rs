@@ -2,9 +2,13 @@
 //!
 //! Every ranking counts completed calls, successful or failed, and orders
 //! rows by call count, then total duration (both descending), then name.
+//! Calls known only from a transcript (sessions imported before
+//! `claudit install`) count as calls and failures, but have no duration:
+//! a transcript's tool_use → tool_result span includes permission prompts.
+//! Durations, and their percentiles, come from the calls the hooks timed
+//! (`timed_calls` of `calls`).
 //!
-//! Percentiles use the **nearest-rank** method over the calls that report a
-//! duration: the p-th percentile of `n` sorted durations is the value at
+//! Percentiles use the **nearest-rank** method over the hook-timed calls: the p-th percentile of `n` sorted durations is the value at
 //! 1-based rank `ceil(p / 100 × n)`. It is always an observed duration, and
 //! the median of an even count is the lower of the two middle values.
 //!
@@ -30,12 +34,16 @@ pub struct CallStats {
     pub calls: u64,
     /// Calls that ended in `PostToolUseFailure`.
     pub failures: u64,
-    /// Sum of the calls' execution time (`duration_ms`).
+    /// Sum of the hook-timed calls' execution time (`duration_ms` as
+    /// reported by Claude Code).
     pub total_duration_ms: u64,
-    /// Nearest-rank median execution time (`None` if no call reported one).
+    /// Nearest-rank median execution time (`None` if no call was timed).
     pub median_duration_ms: Option<u64>,
     /// Nearest-rank 95th percentile execution time.
     pub p95_duration_ms: Option<u64>,
+    /// Calls the hooks timed, which the durations are measured on; the
+    /// others (sessions imported from transcripts) are only counted.
+    pub timed_calls: u64,
 }
 
 impl CallStats {
@@ -109,7 +117,7 @@ fn rank_where(
     params: Vec<Value>,
 ) -> Result<Vec<RankedCalls>> {
     let sql = format!(
-        "SELECT tc.{key}, tc.success, tc.duration_ms
+        "SELECT tc.{key}, tc.success, tc.hook_duration_ms
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
          WHERE tc.post_at_us IS NOT NULL AND tc.{key} IS NOT NULL AND {clause}"
     );
@@ -136,26 +144,39 @@ fn rank_where(
 
     let mut ranking: Vec<RankedCalls> = groups
         .into_iter()
-        .map(|(name, mut group)| {
-            group.durations.sort_unstable();
-            RankedCalls {
-                name,
-                stats: CallStats {
-                    calls: group.calls,
-                    failures: group.failures,
-                    total_duration_ms: group.durations.iter().sum(),
-                    median_duration_ms: nearest_rank(&group.durations, 50),
-                    p95_duration_ms: nearest_rank(&group.durations, 95),
-                },
-            }
+        .map(|(name, group)| RankedCalls {
+            name,
+            stats: CallStats::of(group.calls, group.failures, group.durations),
         })
         .collect();
+    sort_ranking(&mut ranking);
+    Ok(ranking)
+}
+
+impl CallStats {
+    /// The stats of `calls` calls, `failures` of them failed, of which those
+    /// the hooks timed took `durations` (any order).
+    pub(super) fn of(calls: u64, failures: u64, mut durations: Vec<u64>) -> Self {
+        durations.sort_unstable();
+        CallStats {
+            calls,
+            failures,
+            total_duration_ms: durations.iter().sum(),
+            median_duration_ms: nearest_rank(&durations, 50),
+            p95_duration_ms: nearest_rank(&durations, 95),
+            timed_calls: durations.len() as u64,
+        }
+    }
+}
+
+/// The ranking order: call count, then total duration (both descending),
+/// then name.
+pub(super) fn sort_ranking(ranking: &mut [RankedCalls]) {
     ranking.sort_by(|a, b| {
         (b.stats.calls, b.stats.total_duration_ms)
             .cmp(&(a.stats.calls, a.stats.total_duration_ms))
             .then_with(|| a.name.cmp(&b.name))
     });
-    Ok(ranking)
 }
 
 /// The `percentile`-th nearest-rank percentile of ascending `sorted`.

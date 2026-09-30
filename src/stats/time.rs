@@ -1,9 +1,12 @@
 //! Where the time goes: each main-thread turn's wall time split into model,
 //! tool, waiting and subagent time.
 //!
-//! Per turn:
-//! - **wall** = Stop receive time − UserPromptSubmit receive time (falling
-//!   back to the turn's transcript span when a hook is missing);
+//! Only turns the hooks timed count: a turn needs both its
+//! `UserPromptSubmit` and its `Stop` receive times. Sessions imported from
+//! transcripts (recorded before `claudit install`) have no time at all:
+//! transcript spans include permission prompts, idle time and background
+//! work, so they would inflate every component. Per turn:
+//! - **wall** = Stop receive time − UserPromptSubmit receive time;
 //! - **subagent** = the union of the execution intervals
 //!   `[post − duration_ms, post]` of the main thread's `Agent` / `Task`
 //!   calls (the subagent's own tool calls, which carry an `agent_id`, are
@@ -15,6 +18,11 @@
 //!   `[pre, post − duration_ms]` (PreToolUse until execution starts: a
 //!   permission prompt), minus tool and subagent time;
 //! - **model** = everything else in the turn.
+//!
+//! Only hook-timed calls (`PreToolUse` / `PostToolUse`) give intervals; a
+//! call known only from its transcript is left to model time. There is one
+//! `tool_calls` row per call whichever sources saw it, so nothing is
+//! counted twice.
 //!
 //! Every interval is clipped to the turn, and each instant of the turn is
 //! assigned to exactly one component (subagent > tool > waiting > model),
@@ -179,6 +187,7 @@ pub struct ToolWaiting {
     /// Sum over the tool's calls of PreToolUse → execution start. Calls
     /// waiting at the same time each count, and subagents' calls are
     /// included (a subagent's permission prompt waits on the user too).
+    /// Only hook-timed calls can be measured.
     pub waiting: Duration,
     /// Calls that waited at all.
     pub calls_waited: u64,
@@ -186,12 +195,29 @@ pub struct ToolWaiting {
     pub permission_requests: u64,
 }
 
+/// Which sessions the time reports cover: time is measured only on the
+/// sessions the hooks recorded, never on imported ones.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TimeCoverage {
+    /// Filtered sessions with hook data (time is measured on their turns).
+    pub recorded_sessions: u64,
+    /// Filtered sessions known only from their transcripts (recorded before
+    /// `claudit install`): counted in consumption, not in time.
+    pub imported_sessions: u64,
+    /// The first `UserPromptSubmit` the hooks recorded (archive-wide, not
+    /// filtered): when time measurement started, roughly when claudit was
+    /// installed.
+    pub hooks_since: Option<DateTime<Utc>>,
+}
+
 /// Tool names whose execution is a subagent run.
 const SUBAGENT_TOOLS: [&str; 2] = ["Agent", "Task"];
 
-/// Turn start and end, preferring hook times over transcript times.
-const TURN_START: &str = "COALESCE(t.submit_at_us, t.start_at_us)";
-const TURN_END: &str = "COALESCE(t.stop_at_us, t.end_at_us)";
+/// Turn start and end: the `UserPromptSubmit` and `Stop` receive times.
+/// Transcript times are never used for time: a transcript's span includes
+/// permission prompts, idle time and background work.
+const TURN_START: &str = "t.submit_at_us";
+const TURN_END: &str = "t.stop_at_us";
 
 /// Filter columns of `turns t LEFT JOIN sessions s LEFT JOIN api_messages m`.
 pub(super) const TURN_COLUMNS: FilterColumns = FilterColumns {
@@ -242,6 +268,33 @@ pub fn time_breakdown(conn: &Connection, filter: &Filter) -> Result<TimeBreakdow
     })
 }
 
+/// Recorded vs imported sessions in the filter (sessions as in
+/// [`super::sessions::session_list`]), and when hook timing started.
+pub fn time_coverage(conn: &Connection, filter: &Filter) -> Result<TimeCoverage> {
+    let where_ = filter.sql(&super::consumption::SESSION_COLUMNS)?;
+    let (imported, recorded): (i64, i64) = conn.query_row(
+        &format!(
+            "SELECT COALESCE(SUM(imported), 0), COALESCE(SUM(NOT imported), 0)
+             FROM (SELECT {} AS imported
+                   FROM sessions s LEFT JOIN api_messages m ON m.session_id = s.session_id
+                   WHERE s.first_at_us IS NOT NULL AND {}
+                   GROUP BY s.session_id)",
+            super::sessions::IMPORTED,
+            where_.clause
+        ),
+        params_from_iter(where_.params),
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    // Indexed (`turns_by_submit`): no scan.
+    let since: Option<i64> =
+        conn.query_row("SELECT MIN(submit_at_us) FROM turns", [], |row| row.get(0))?;
+    Ok(TimeCoverage {
+        recorded_sessions: recorded.max(0) as u64,
+        imported_sessions: imported.max(0) as u64,
+        hooks_since: since.map(clock::from_micros),
+    })
+}
+
 /// Tools that made the user wait, most waiting first.
 pub fn waiting_by_tool(conn: &Connection, filter: &Filter) -> Result<Vec<ToolWaiting>> {
     let mut by_tool: BTreeMap<String, ToolWaiting> = BTreeMap::new();
@@ -261,7 +314,7 @@ pub fn waiting_by_tool(conn: &Connection, filter: &Filter) -> Result<Vec<ToolWai
                 SUM({start} > tc.pre_at_us)
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
          WHERE tc.pre_at_us IS NOT NULL AND tc.post_at_us IS NOT NULL
-           AND tc.duration_ms IS NOT NULL AND {}
+           AND tc.duration_ms IS NOT NULL AND tc.timing_source = 'hook' AND {}
          GROUP BY tc.tool_name",
         where_.clause,
         start = super::tools::EXECUTION_START,
@@ -333,10 +386,13 @@ fn load_turns(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec
             row.get::<_, i64>(4)?,
         ))
     })?;
+    // Hook-timed calls only: a transcript's tool_use → tool_result span
+    // includes permission prompts.
     let mut calls_stmt = conn.prepare(
-        "SELECT tool_name, pre_at_us, post_at_us, duration_ms FROM tool_calls
+        "SELECT tool_name, hook_pre_at_us, hook_post_at_us, hook_duration_ms
+         FROM tool_calls
          WHERE session_id = ?1 AND prompt_id = ?2 AND agent_id IS NULL
-           AND post_at_us IS NOT NULL",
+           AND hook_post_at_us IS NOT NULL",
     )?;
     let mut turns = Vec::new();
     for row in rows {

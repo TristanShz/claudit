@@ -12,9 +12,15 @@
 //! - Many other line types (`mode`, `last-prompt`, `ai-title`,
 //!   `file-history-snapshot`, `queue-operation`, …) carry nothing claudit
 //!   uses and are ignored.
+//! - Tool calls: an `assistant` entry's `message.content` carries
+//!   `tool_use` blocks (`id` = tool_use_id, `name`, `input`); a later `user`
+//!   entry carries the matching `tool_result` block (`tool_use_id`,
+//!   `is_error`, which is absent on some successes, and the output in
+//!   `content`). Claude Code writes one block per entry.
 //!
-//! Assistant response text and tool results are never extracted; prompt
-//! text is redacted (`crate::redact`) as soon as it is extracted.
+//! Assistant response text and tool results are never extracted (of a
+//! `tool_result`, only its id and `is_error` are kept); prompt text and tool
+//! inputs are redacted (`crate::redact`) as soon as they are extracted.
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -47,6 +53,26 @@ pub(super) struct Entry {
     pub permission_mode: Option<String>,
     pub effort: Option<String>,
     pub kind: Kind,
+    /// `tool_use` blocks of an `assistant` entry.
+    pub tool_uses: Vec<ToolUse>,
+    /// `tool_result` blocks of a `user` entry.
+    pub tool_results: Vec<ToolResult>,
+}
+
+/// A tool call the model made.
+#[derive(Debug)]
+pub(super) struct ToolUse {
+    pub id: String,
+    pub name: String,
+    /// The input, redacted.
+    pub input: Option<Value>,
+}
+
+/// The outcome of a tool call: only whether it failed, never its output.
+#[derive(Debug)]
+pub(super) struct ToolResult {
+    pub tool_use_id: String,
+    pub is_error: bool,
 }
 
 #[derive(Debug)]
@@ -157,6 +183,18 @@ pub(super) fn parse(line: &str) -> Line {
         Ok(envelope) => envelope,
         Err(err) => return Line::Unknown(format!("`{entry_type}` entry: {err}")),
     };
+    let blocks = envelope
+        .message
+        .as_ref()
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let (tool_uses, tool_results) = match entry_type.as_str() {
+        "assistant" => (blocks.iter().filter_map(tool_use).collect(), Vec::new()),
+        "user" => (Vec::new(), blocks.iter().filter_map(tool_result).collect()),
+        _ => (Vec::new(), Vec::new()),
+    };
     let kind = match entry_type.as_str() {
         "user" => Kind::User {
             prompt_text: if envelope.is_meta == Some(true) {
@@ -202,7 +240,33 @@ pub(super) fn parse(line: &str) -> Line {
         permission_mode: envelope.permission_mode,
         effort: envelope.effort,
         kind,
+        tool_uses,
+        tool_results,
     }))
+}
+
+fn tool_use(block: &Value) -> Option<ToolUse> {
+    if block.get("type")?.as_str()? != "tool_use" {
+        return None;
+    }
+    Some(ToolUse {
+        id: block.get("id")?.as_str()?.to_owned(),
+        name: block.get("name")?.as_str()?.to_owned(),
+        input: block.get("input").cloned().map(|mut input| {
+            redact::redact_value(&mut input);
+            input
+        }),
+    })
+}
+
+fn tool_result(block: &Value) -> Option<ToolResult> {
+    if block.get("type")?.as_str()? != "tool_result" {
+        return None;
+    }
+    Some(ToolResult {
+        tool_use_id: block.get("tool_use_id")?.as_str()?.to_owned(),
+        is_error: block.get("is_error").and_then(Value::as_bool) == Some(true),
+    })
 }
 
 /// The text a user typed: a string content, or the text blocks of a list

@@ -10,7 +10,57 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.2.0] - 2026-09-30
+
+### Added
+
+- **Tool calls from transcripts**: sessions imported by the transcript
+  backfill (everything before `claudit install`) now get their tool calls,
+  Bash commands and failures, subagent calls included. They count as calls
+  but carry no duration (see below); when both sources saw a call it counts
+  once, with the hook timing, in any ingest order. Tool result content is
+  never stored.
+- **Imported sessions are flagged**: a session with no hook data is
+  `imported` (`SessionSummary::imported`, `SessionDetail::imported`); the
+  session table tags it and shows `–` for its duration and split, and its
+  page explains that tokens, cost and tool calls are available but not the
+  time breakdown. Time sections show how many sessions they cover
+  (`stats::time::time_coverage`), or an empty state when no hook-recorded
+  session matches.
+- **One-time rebuild after an upgrade**: when the archive was derived by an
+  older claudit (`derivation_version` in `meta`), the next `claudit ingest`
+  or `claudit serve` rebuilds it once, as `claudit reingest` would, so
+  existing archives get the tool calls of transcripts already read.
+- **Models**: an overview block and a `/models` page with, per model, the
+  sessions that used it, API responses, tokens, cache-read share and
+  API-equivalent cost, its share of all tokens and cost, and the split
+  between the main thread and subagents
+  (`stats::models::model_usage`).
+- **Activities**: what Claude's tools spend their time on. Every tool call
+  is classified (tests, build & typecheck, lint & format, git & GitHub,
+  dependencies, run & scripts, search, read and edit files, web, subagents,
+  skills, MCP, planning) by versioned built-in rules
+  (`activities/rules.toml`) at query time, so rule changes apply to the
+  whole history. Shown as an overview section, an `/activities` page with
+  each activity's top commands and a daily chart, and a panel on the
+  session page (`stats::activities`). Add or override rules in
+  `$CLAUDIT_HOME/activities.toml`; an invalid file is ignored and reported
+  in a banner.
+
+### Fixed
+
+- **Time is measured from hook-recorded data only.** Turn spans read from
+  transcripts include permission prompts, idle time and background tasks,
+  so imported sessions inflated "Where the time goes" (hundreds of hours of
+  "model" time). Time decomposition, active time, waiting, session
+  durations, the turn timeline, skills' attributed time and subagent
+  durations now use hook times only (a turn needs its `UserPromptSubmit`
+  and `Stop`). Tool and activity durations and percentiles come from
+  hook-timed calls only; `CallStats::estimated_duration_calls` is replaced
+  by `timed_calls`. Consumption (sessions, turns, tokens, cost, models,
+  tool calls) still covers every session.
+
+## [0.1.0] - 2026-09-30
 
 First public release.
 
@@ -73,5 +123,6 @@ First public release.
 - Prebuilt macOS binaries (arm64 and x86_64) published on each tag, and
   `cargo install --git https://github.com/TristanShz/claudit`.
 
-[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/TristanShz/claudit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/TristanShz/claudit/releases/tag/v0.1.0

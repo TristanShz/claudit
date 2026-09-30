@@ -84,6 +84,11 @@ impl Paths {
         self.home.join("install-state.json")
     }
 
+    /// The user's activity rules, evaluated before the built-in ones.
+    pub fn activity_rules_file(&self) -> PathBuf {
+        self.home.join("activities.toml")
+    }
+
     /// Claude Code's configuration directory.
     pub fn claude_config_dir(&self) -> &Path {
         &self.claude_config_dir

@@ -1,5 +1,5 @@
-//! Loads Claude Code transcripts into `sessions`, `turns` and
-//! `api_messages`.
+//! Loads Claude Code transcripts into `sessions`, `turns`, `api_messages`,
+//! `subagent_runs` and `tool_calls`.
 //!
 //! Inputs, under the Claude projects dir:
 //! - main sessions: `<project>/<session_id>.jsonl`;
@@ -21,6 +21,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use self::entry::{Entry, Kind, Line};
 use super::IngestReport;
 use super::events::subagent_runs::{self, RunUpdate};
+use super::events::tool_call::{self, AnnouncedCall};
 use super::offsets::{self, FileId};
 use crate::clock::{self, Clock, SystemClock};
 use crate::logfile;
@@ -290,6 +291,38 @@ fn project(conn: &Connection, entry: &Entry, file_agent: Option<&str>) -> Result
             }
         }
         Kind::Other => {}
+    }
+    project_tool_calls(conn, entry, prompt_id.as_deref(), agent_id, at_us)
+}
+
+/// The entry's tool calls: a `tool_use` announces a call at the
+/// entry's time, a `tool_result` completes it (see `events::tool_call` for
+/// how this timing combines with the hooks').
+fn project_tool_calls(
+    conn: &Connection,
+    entry: &Entry,
+    prompt_id: Option<&str>,
+    agent_id: Option<&str>,
+    at_us: i64,
+) -> Result<()> {
+    let cwd = entry.cwd.as_deref().map(redact::redact_str);
+    for call in &entry.tool_uses {
+        tool_call::record_transcript_use(
+            conn,
+            &AnnouncedCall {
+                tool_use_id: &call.id,
+                session_id: &entry.session_id,
+                prompt_id,
+                agent_id,
+                tool_name: &call.name,
+                tool_input: call.input.as_ref(),
+                cwd: cwd.as_deref(),
+                at_us,
+            },
+        )?;
+    }
+    for result in &entry.tool_results {
+        tool_call::record_transcript_result(conn, &result.tool_use_id, at_us, result.is_error)?;
     }
     Ok(())
 }

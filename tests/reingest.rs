@@ -9,6 +9,7 @@
 mod common;
 
 use chrono::Duration;
+use claudit::activities::ActivityRules;
 use claudit::pricing::PriceTable;
 use claudit::stats::{self, Filter};
 use common::TestEnv;
@@ -27,6 +28,7 @@ struct Reports {
     ingest_status: stats::ingest_status::IngestStatus,
     filter_options: stats::filter_options::FilterOptions,
     time_breakdown: stats::time::TimeBreakdown,
+    time_coverage: stats::time::TimeCoverage,
     turn_times: Vec<stats::time::TurnTime>,
     waiting_by_tool: Vec<stats::time::ToolWaiting>,
     skills: Vec<stats::skills::SkillStat>,
@@ -38,17 +40,23 @@ struct Reports {
     cost_by_skill: Vec<stats::cost::CostLine>,
     cost_by_agent_type: Vec<stats::cost::CostLine>,
     daily_series: Vec<stats::cost::DailyUsage>,
+    model_usage: stats::models::ModelsReport,
+    activity_breakdown: stats::activities::ActivityBreakdown,
     acme_tool_ranking: Vec<stats::tools::RankedCalls>,
     acme_consumption: stats::consumption::Consumption,
     acme_sessions: Vec<stats::sessions::SessionSummary>,
     acme_time_breakdown: stats::time::TimeBreakdown,
+    acme_time_coverage: stats::time::TimeCoverage,
     acme_skills: Vec<stats::skills::SkillStat>,
     acme_subagents: Vec<stats::subagents::SubagentTypeStat>,
     acme_total_cost: stats::cost::CostLine,
+    acme_model_usage: stats::models::ModelsReport,
+    acme_activity_breakdown: stats::activities::ActivityBreakdown,
     session_a_turn_times: Vec<stats::time::TurnTime>,
     session_a_skill_invocations: Vec<stats::skills::SkillInvocation>,
     session_a_subagent_runs: Vec<stats::subagents::SubagentRun>,
     session_a_detail: Option<stats::session_detail::SessionDetail>,
+    session_a_activities: stats::activities::ActivityBreakdown,
 }
 
 /// Fixture session `8d0c5a3e-…`, whose hooks [`populate`] replays.
@@ -62,6 +70,7 @@ fn reports(env: &TestEnv) -> Reports {
     };
     let conn = env.db();
     let prices = PriceTable::builtin();
+    let rules = ActivityRules::builtin();
     let cost = |f: fn(
         &rusqlite::Connection,
         &Filter,
@@ -78,6 +87,7 @@ fn reports(env: &TestEnv) -> Reports {
         ingest_status: env.ingest_status(),
         filter_options: stats::filter_options::filter_options(&conn).expect("filter_options"),
         time_breakdown: env.time_breakdown(&all),
+        time_coverage: stats::time::time_coverage(&conn, &all).expect("time_coverage"),
         turn_times: env.turn_times(&all),
         waiting_by_tool: env.waiting_by_tool(&all),
         skills: env.skills(&all),
@@ -89,13 +99,20 @@ fn reports(env: &TestEnv) -> Reports {
         cost_by_skill: cost(stats::cost::cost_by_skill),
         cost_by_agent_type: cost(stats::cost::cost_by_agent_type),
         daily_series: stats::cost::daily_series(&conn, &all, prices).expect("daily_series"),
+        model_usage: stats::models::model_usage(&conn, &all, prices).expect("model_usage"),
+        activity_breakdown: stats::activities::activity_breakdown(&conn, &all, rules)
+            .expect("activity_breakdown"),
         acme_tool_ranking: env.tool_ranking(&acme),
         acme_consumption: env.consumption(&acme),
         acme_sessions: env.sessions(&acme),
         acme_time_breakdown: env.time_breakdown(&acme),
+        acme_time_coverage: stats::time::time_coverage(&conn, &acme).expect("time_coverage"),
         acme_skills: env.skills(&acme),
         acme_subagents: env.subagents(&acme),
         acme_total_cost: stats::cost::total_cost(&conn, &acme, prices).expect("total_cost"),
+        acme_model_usage: stats::models::model_usage(&conn, &acme, prices).expect("model_usage"),
+        acme_activity_breakdown: stats::activities::activity_breakdown(&conn, &acme, rules)
+            .expect("activity_breakdown"),
         session_a_turn_times: stats::time::session_turn_times(&conn, SESSION_A)
             .expect("session_turn_times"),
         session_a_skill_invocations: stats::skills::session_skill_invocations(&conn, SESSION_A)
@@ -104,6 +121,8 @@ fn reports(env: &TestEnv) -> Reports {
             .expect("session_subagent_runs"),
         session_a_detail: stats::session_detail::session_detail(&conn, SESSION_A, prices)
             .expect("session_detail"),
+        session_a_activities: stats::activities::session_activities(&conn, SESSION_A, rules)
+            .expect("session_activities"),
     }
 }
 
@@ -140,7 +159,9 @@ fn reingest_on_a_populated_archive_yields_identical_reports() {
     let env = TestEnv::new();
     populate(&env);
     let before = reports(&env);
-    assert_eq!(before.tool_ranking.len(), 3, "the archive is populated");
+    // Bash, Agent and Read from the hooks; Edit only from session
+    // `2b7e4f10`'s transcript.
+    assert_eq!(before.tool_ranking.len(), 4, "the archive is populated");
     assert!(before.consumption.sessions > 0, "transcripts were ingested");
     assert!(!before.turn_times.is_empty(), "turns were timed");
     assert!(!before.waiting_by_tool.is_empty(), "waits were measured");
@@ -152,6 +173,7 @@ fn reingest_on_a_populated_archive_yields_identical_reports() {
     );
     assert!(!before.session_a_skill_invocations.is_empty());
     assert!(before.session_a_detail.is_some());
+    assert!(!before.activity_breakdown.activities.is_empty());
 
     claudit::ingest::reingest(&env.paths).expect("reingest succeeds");
 
@@ -200,7 +222,13 @@ fn reingest_also_ingests_what_is_still_pending() {
 fn hook_data_survives_a_reingest_after_its_transcripts_are_gone() {
     let env = TestEnv::new();
     populate(&env);
-    let tools = env.tool_ranking(&Filter::default());
+    // A call known only from a transcript goes with it, as its tokens do.
+    let tools: Vec<_> = env
+        .tool_ranking(&Filter::default())
+        .into_iter()
+        .filter(|tool| tool.stats.timed_calls > 0)
+        .collect();
+    assert_eq!(tools.len(), 3, "only Edit was transcript-only (untimed)");
     std::fs::remove_dir_all(env.paths.claude_projects_dir()).unwrap();
 
     claudit::ingest::reingest(&env.paths).expect("reingest succeeds");

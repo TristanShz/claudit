@@ -231,16 +231,40 @@ impl TestEnv {
             });
     }
 
+    /// Copies the tool-call fixture session
+    /// (`tests/fixtures/transcripts/tool_calls`, a backfilled session with
+    /// Bash, Read and Agent calls and a subagent) into the Claude projects
+    /// dir.
+    pub fn drop_tool_calls_fixture(&self) {
+        copy_tree(
+            &fixtures_dir().join("transcripts/tool_calls"),
+            &self.paths.claude_projects_dir(),
+        );
+    }
+
     /// Replays the hook payloads captured from a real Claude Code session
     /// (`tests/fixtures/hooks/captured-<version>/`), in file-name order, each
     /// at the receive time its `received_at.json` records.
     pub fn replay_captured_hooks(&self, version: &str) {
-        let dir = fixtures_dir().join(format!("hooks/captured-{version}"));
+        self.replay_hook_dir(&format!("captured-{version}"));
+    }
+
+    /// Replays the synthetic session `9f4c2b7a-…`
+    /// (`tests/fixtures/hooks/activities/`): tests, builds, git, edits and
+    /// one other shell command on 2026-03-05, known only from hooks.
+    pub fn replay_activities_session(&self) {
+        self.replay_hook_dir("activities");
+    }
+
+    /// Feeds every payload of `tests/fixtures/hooks/<dir>/`, in file-name
+    /// order, at the receive time its `received_at.json` records.
+    fn replay_hook_dir(&self, dir: &str) {
+        let path = fixtures_dir().join("hooks").join(dir);
         let times: std::collections::BTreeMap<String, DateTime<Utc>> =
-            serde_json::from_str(&fs::read_to_string(dir.join("received_at.json")).unwrap())
+            serde_json::from_str(&fs::read_to_string(path.join("received_at.json")).unwrap())
                 .unwrap();
         for (name, at) in times {
-            self.hook_fixture_at(at, &format!("captured-{version}/{name}"));
+            self.hook_fixture_at(at, &format!("{dir}/{name}"));
         }
     }
 
@@ -257,16 +281,17 @@ impl TestEnv {
     // ---- ingest & stats ---------------------------------------------------
 
     /// Runs the locked catch-up ingest (what `claudit ingest` and
-    /// `claudit serve` run) and requires it to have taken the lock.
+    /// `claudit serve` run), requires it to have taken the lock, and returns
+    /// its report.
     ///
     /// Retries briefly on `AlreadyRunning`: while another test thread forks
     /// a process, the child briefly shares every open descriptor of this
     /// process, including a just-released ingest lock.
-    pub fn ingest(&self) {
+    pub fn ingest(&self) -> claudit::ingest::IngestReport {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         loop {
             match self.try_ingest() {
-                claudit::ingest::IngestOutcome::Ran(_) => return,
+                claudit::ingest::IngestOutcome::Ran(report) => return report,
                 claudit::ingest::IngestOutcome::AlreadyRunning => {
                     assert!(
                         std::time::Instant::now() < deadline,
@@ -374,6 +399,12 @@ pub fn hook_fixture(name: &str) -> Value {
     let path = fixtures_dir().join("hooks").join(name);
     let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// Contents of `tests/fixtures/transcripts/<relative>`.
+pub fn transcripts_fixture_file(relative: &str) -> String {
+    let path = fixtures_dir().join("transcripts").join(relative);
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
 /// Contents of `tests/fixtures/transcripts/projects/<relative>`.

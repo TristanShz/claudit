@@ -1,0 +1,1 @@
+<p class="empty">{% if let Some(since) = time_note.since %}No hook-recorded session for this filter: time is measured only on sessions recorded with claudit's hooks (since {{ since }}).{% else %}No hook-recorded session yet: time is measured once <code>claudit install</code> is active.{% endif %}</p>

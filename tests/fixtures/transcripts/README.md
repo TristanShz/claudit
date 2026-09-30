@@ -36,6 +36,29 @@ and the totals above are unaffected; `tests/cost.rs` drops them explicitly:
 
 Every cache write in `projects/` is a 1-hour write (`ephemeral_1h_input_tokens`).
 
+Since tool calls are read from transcripts too, `projects/` yields, without
+any hook: session `8d0c5a3e` a Bash call (09:00:04 → 09:00:20) and an Agent
+call (09:05:02 → 09:06:10) on the main thread, and a Read call (09:05:06 →
+09:05:07) in its subagent; session `2b7e4f10` an Edit call (14:00:02 →
+14:00:03). The hook fixtures of session `8d0c5a3e` carry the same
+`tool_use_id`s, so with hooks those calls count once, with hook timing.
+
+`tool_calls/` holds a session for tool calls read from transcripts only
+(a backfilled session), kept out of `projects/` so the results documented
+above stay valid; `TestEnv::drop_tool_calls_fixture` copies it into place
+and `tests/transcript_tool_calls.rs` and `tests/hook_timing.rs` (as the
+imported session of a mixed archive) use it:
+
+| File | What it covers |
+| --- | --- |
+| `tool_calls/-Users-alice-code-toolbox/6e2d9b47-….jsonl` | One turn (2026-03-04 10:00:00 → 10:00:21, Sonnet), one `tool_use` per assistant entry and one `tool_result` per user entry: Bash `git status --short` 02.0 → 03.5 s (1500 ms), Bash `cargo test --all` 05.0 → 12.0 s (7000 ms, `is_error: true`), Read 13.0 → 13.2 s (200 ms, no `is_error` field, list content), Agent 14.0 → 20.0 s (6000 ms). |
+| `tool_calls/…/6e2d9b47-…/subagents/agent-a7c9e1b3d5f2a4c6e.jsonl` | The Explore subagent (Haiku): Grep 15.0 → 15.4 s (400 ms). Its `.meta.json` names the Agent call. |
+
+The spans in parentheses are what the transcript shows; claudit measures
+time from hooks only, so without hooks the session has five calls (one
+failed) and no time at all: no timed turn, no tool durations, no subagent
+duration.
+
 The files are generated for readability, not captured verbatim. When the
 upstream format changes, add fixtures for the new version next to these
 rather than editing them.

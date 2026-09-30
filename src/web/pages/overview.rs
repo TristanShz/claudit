@@ -1,5 +1,6 @@
-//! The overview (home) page: KPIs, where the time goes, the top tools,
-//! skills and subagents, and the most recent sessions.
+//! The overview (home) page: KPIs, where the time goes, what the tools
+//! spend time on, the top tools,
+//! skills, subagents and models, and the most recent sessions.
 
 mod time_section;
 
@@ -15,13 +16,14 @@ use crate::pricing::{Cost, PriceTable};
 use crate::stats::consumption::{self, Consumption};
 use crate::stats::time::TimeBreakdown;
 use crate::stats::tools::RankedCalls;
-use crate::stats::{cost, sessions, skills, subagents, time, tools};
+use crate::stats::{activities, cost, models, sessions, skills, subagents, time, tools};
 use crate::web::AppState;
+use crate::web::coverage::TimeNote;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
 use crate::web::frame::Frame;
-use crate::web::rows::{self, SessionRow, SkillRow, SubagentRow, ToolRow};
+use crate::web::rows::{self, ActivityRow, ModelRow, SessionRow, SkillRow, SubagentRow, ToolRow};
 use time_section::TimeSection;
 
 /// Rows shown per ranked list.
@@ -35,9 +37,17 @@ struct OverviewPage {
     frame: Frame,
     kpis: Kpis,
     time: TimeSection,
+    /// What the time sections cover.
+    time_note: TimeNote,
+    activities: Vec<ActivityRow>,
+    /// Summed hook-timed tool time, formatted.
+    activities_total: String,
+    /// Activity bars show calls: nothing in the filter was hook-timed.
+    activities_by_calls: bool,
     tools: Vec<ToolRow>,
     skills: Vec<SkillRow>,
     subagents: Vec<SubagentRow>,
+    models: Vec<ModelRow>,
     sessions: Vec<SessionRow>,
     more_sessions: usize,
 }
@@ -63,6 +73,7 @@ impl Kpis {
     fn new(
         c: Consumption,
         breakdown: &TimeBreakdown,
+        time_note: &TimeNote,
         tools: &[RankedCalls],
         total_cost: &Cost,
     ) -> Self {
@@ -70,8 +81,12 @@ impl Kpis {
         let failures: u64 = tools.iter().map(|t| t.stats.failures).sum();
         Self {
             sessions: c.sessions,
-            turns: breakdown.turns,
-            active_time: format::duration(breakdown.total.wall()),
+            turns: c.turns,
+            active_time: if time_note.empty {
+                "–".to_owned()
+            } else {
+                format::duration(breakdown.total.wall())
+            },
             tool_calls: format::count(calls),
             failure_rate: if calls > 0 {
                 format!("{} failed", format::percent(failures as f64 / calls as f64))
@@ -122,12 +137,15 @@ pub(in crate::web) async fn handler(
 
         let tool_ranking = tools::tool_ranking(&conn, &filter)?;
         let breakdown = time::time_breakdown(&conn, &filter)?;
+        let time_note = TimeNote::new(&time::time_coverage(&conn, &filter)?);
         let kpis = Kpis::new(
             consumption::consumption(&conn, &filter)?,
             &breakdown,
+            &time_note,
             &tool_ranking,
             &cost::total_cost(&conn, &filter, prices)?.cost,
         );
+        let activity_breakdown = activities::activity_breakdown(&conn, &filter, &frame.rules)?;
         let time = TimeSection::build(breakdown, time::waiting_by_tool(&conn, &filter)?)?;
 
         let costs: HashMap<String, Cost> = cost::cost_by_session(&conn, &filter, prices)?
@@ -141,6 +159,8 @@ pub(in crate::web) async fn handler(
         let mut tools = rows::tool_rows(tool_ranking);
         let mut skills = rows::skill_rows(skills::skill_ranking(&conn, &filter)?);
         let mut subagents = rows::subagent_rows(subagents::subagent_ranking(&conn, &filter)?);
+        let mut models = rows::model_rows(&models::model_usage(&conn, &filter, prices)?);
+        models.truncate(TOP);
         tools.truncate(TOP);
         skills.truncate(TOP);
         subagents.truncate(TOP);
@@ -149,9 +169,14 @@ pub(in crate::web) async fn handler(
             frame,
             kpis,
             time,
+            time_note,
+            activities: rows::activity_rows(&activity_breakdown),
+            activities_total: format::duration_ms(activity_breakdown.total_duration_ms),
+            activities_by_calls: rows::activities_by_calls(&activity_breakdown),
             tools,
             skills,
             subagents,
+            models,
             sessions: rows::session_rows(recent, &costs),
             more_sessions,
         })

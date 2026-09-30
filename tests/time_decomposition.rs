@@ -132,7 +132,8 @@ fn parallel_tool_calls_overlap_so_tool_time_never_exceeds_wall_time() {
 #[test]
 fn the_components_sum_to_wall_time_for_every_fixture_turn() {
     let env = session_a();
-    // Plus sessions with transcripts only (no hooks) and a hook-only turn.
+    // Plus sessions with transcripts only (no hooks, hence no timed turn)
+    // and a hook-only turn.
     env.drop_projects_fixture();
     submit(&env, 0);
     pre(&env, 1_000, "t-1", "Bash");
@@ -141,7 +142,7 @@ fn the_components_sum_to_wall_time_for_every_fixture_turn() {
     env.ingest();
 
     let turns = env.turn_times(&Filter::default());
-    assert_eq!(turns.len(), 5, "{turns:#?}");
+    assert_eq!(turns.len(), 3, "{turns:#?}");
     for t in &turns {
         let s = &t.split;
         assert_eq!(
@@ -161,16 +162,16 @@ fn the_components_sum_to_wall_time_for_every_fixture_turn() {
 }
 
 #[test]
-fn a_transcript_only_turn_falls_back_to_the_transcript_span_as_model_time() {
+fn a_turn_without_hooks_is_counted_but_not_timed() {
     let env = TestEnv::new();
     env.drop_transcript_fixture(&format!("{ACME}/{SESSION_A}.jsonl"));
     env.ingest();
 
-    let turns = env.turn_times(&Filter::default());
-    let t1 = turn(&turns, TURN_A1);
-    // First to last main-thread user/assistant entry: 09:00:00 → 09:00:30.
-    assert_eq!((t1.start, t1.end), (at(0), at(30_000)));
-    assert_eq!(t1.split, split(30_000, 0, 0, 0));
+    // Its transcript spans 09:00:00 → 09:00:30, permission prompt
+    // included: time comes from hooks only.
+    assert!(env.turn_times(&Filter::default()).is_empty());
+    assert_eq!(env.time_breakdown(&Filter::default()).turns, 0);
+    assert_eq!(env.consumption(&Filter::default()).turns, 2);
 }
 
 #[test]
