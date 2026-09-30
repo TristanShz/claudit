@@ -10,6 +10,8 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-30
+
 ### Added
 
 - `claudit serve -d` / `--detach`: runs the dashboard in the background,
@@ -246,7 +248,8 @@ First public release.
 - Prebuilt macOS binaries (arm64 and x86_64) published on each tag, and
   `cargo install --git https://github.com/TristanShz/claudit`.
 
-[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/TristanShz/claudit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/TristanShz/claudit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/TristanShz/claudit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/TristanShz/claudit/compare/v0.2.0...v0.3.0
