@@ -10,6 +10,8 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-30
+
 ### Added
 
 - **Tool calls from transcripts**: sessions imported by the transcript
@@ -58,7 +60,7 @@ migrates the archive automatically.
   by `timed_calls`. Consumption (sessions, turns, tokens, cost, models,
   tool calls) still covers every session.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-09-30
 
 First public release.
 
@@ -121,5 +123,6 @@ First public release.
 - Prebuilt macOS binaries (arm64 and x86_64) published on each tag, and
   `cargo install --git https://github.com/TristanShz/claudit`.
 
-[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/TristanShz/claudit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/TristanShz/claudit/releases/tag/v0.1.0
