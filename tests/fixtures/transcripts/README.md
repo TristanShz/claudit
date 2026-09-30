@@ -63,6 +63,16 @@ The files are generated for readability, not captured verbatim. When the
 upstream format changes, add fixtures for the new version next to these
 rather than editing them.
 
+`trace/` holds the transcript of the synthetic session `c4e8a2f0-…`
+whose hooks are in `tests/fixtures/hooks/trace/` (see the README there);
+`TestEnv::populate_trace_session` drops both. Opus 5.5 throughout:
+
+| Turn | What the transcript has |
+| --- | --- |
+| `…0100` (09:50) | A typed `/implement 12` (`<command-name>` markup) before the hooks were installed, with a Bash `ls src` call: an untimed turn. Tokens 2 / 40 / 100 / 1000. |
+| `…0101` (10:00) | The prompt the hooks time, and a Glob call (01.0 → 01.5 s) no hook saw: a call known only from the transcript. Tokens 3 / 60 / 200 / 2000. |
+| `…0103` (10:02) | The subagent's hand-back, a meta entry (`isMeta`, `promptSource: "system"`, `<agent-message from="a5d7…">`) opening a turn no hook saw. Tokens 1 / 20 / 0 / 3000. |
+
 ## `captured-2.1.284/`: a real session
 
 The transcripts Claude Code 2.1.284 wrote for the session whose hook payloads

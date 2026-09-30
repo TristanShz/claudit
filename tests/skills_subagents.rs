@@ -185,7 +185,8 @@ fn subagents_are_ranked_by_type_with_duration_model_and_transcript_tokens() {
         [SubagentTypeStat {
             agent_type: "general-purpose".into(),
             runs: 1,
-            total_duration: Duration::milliseconds(63_400),
+            // SubagentStart 302.2 s → SubagentStop 365.5 s.
+            total_duration: Duration::milliseconds(63_300),
             tool_calls: 1,
             model: Some(HAIKU.into()),
             tokens: subagent_tokens(),

@@ -32,11 +32,13 @@ mod filter;
 pub mod filter_options;
 pub mod ingest_status;
 pub mod models;
+pub mod prompt;
 pub mod session_detail;
 pub mod sessions;
 pub mod skills;
 pub mod subagents;
 pub mod time;
 pub mod tools;
+pub mod trace;
 
 pub use filter::{Filter, FilterColumns, FilterSql};

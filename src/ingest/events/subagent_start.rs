@@ -32,5 +32,13 @@ pub(super) fn project(conn: &Connection, event: &RawEvent) -> Result<Projection>
             ..RunUpdate::default()
         },
     )?;
+    subagent_runs::record_event(
+        conn,
+        &start.agent_id,
+        &event.session_id,
+        start.prompt_id.as_deref(),
+        "start",
+        event.received_at_us(),
+    )?;
     Ok(Projection::Applied)
 }

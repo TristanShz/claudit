@@ -1,0 +1,28 @@
+<div class="trace" id="trace-{{ key }}" data-trace="trace-data-{{ key }}">
+  <p class="muted small trace-facts">
+    {{ calls }} tool call{% if calls != 1 %}s{% endif %}{% if subagents > 0 %} · {{ subagents }} subagent{% if subagents != 1 %}s{% endif %}{% endif %} · spans {{ span }}
+    {% if untimed_turn %} · <span title="No UserPromptSubmit/Stop hook for this turn">turn not timed by the hooks</span>{% endif %}
+    {% if untimed_calls > 0 %} · {{ untimed_calls }} call{% if untimed_calls != 1 %}s{% endif %} without hook timing, drawn as ticks at launch{% endif %}
+  </p>
+  {% if calls > 0 %}
+  <div class="trace-chips" role="group" aria-label="Highlight an activity">
+    <button type="button" class="chip" data-activity="" aria-pressed="true">All</button>
+    {% for c in chips %}
+    <button type="button" class="chip" data-activity="{{ c.name }}" aria-pressed="false"><span class="swatch" style="background: var(--act-{{ c.color }})"></span>{{ c.name }} <span class="muted">{{ c.calls }}</span></button>
+    {% endfor %}
+    <button type="button" class="chip" data-activity=":failed" aria-pressed="false"><span class="swatch swatch-failed"></span>Failed</button>
+  </div>
+  {% endif %}
+  <div class="chart trace-chart" data-chart="turn-trace" data-source="trace-data-{{ key }}" style="height: {{ height }}px" aria-label="Tool calls and subagents over time"></div>
+  <p class="muted small trace-legend">Bars: execution (hook-timed) · pale bar before it: waiting for permission · tick: launch only (no hook timing) · red outline: failed · shaded band: subagent running · scroll or drag the slider to zoom.</p>
+  <script type="application/json" id="trace-data-{{ key }}">{{ json|safe }}</script>
+  {% if calls > 0 %}
+  <div class="table-scroll">
+    <table class="ranking trace-log">
+      <thead><tr><th class="num">At</th><th>Lane</th><th>Activity</th><th>Tool</th><th>Summary</th><th class="num">Duration</th><th>Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <button type="button" class="more" hidden>Show all calls</button>
+  {% endif %}
+</div>

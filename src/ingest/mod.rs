@@ -38,7 +38,9 @@ pub const META_DERIVATION_VERSION: &str = "derivation_version";
 /// existing archives once, as `claudit reingest` would.
 ///
 /// - 1: tool calls read from transcripts (migration 0011).
-pub const DERIVATION_VERSION: u32 = 1;
+/// - 2: subagent start / stop events (migration 0017), and the text of
+///   system-injected prompts (a subagent's hand-back) from transcripts.
+pub const DERIVATION_VERSION: u32 = 2;
 
 /// Upper bound on passes per catch-up, so input that never stops growing
 /// cannot keep one ingest process alive forever (the next `Stop` resumes).

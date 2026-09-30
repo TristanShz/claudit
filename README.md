@@ -17,7 +17,17 @@ SQLite archive and serves a local dashboard to analyze them after the fact:
   yours to extend (see [Activities](#activities));
 - **skills**, split by who triggered them (you typing `/skill`, or Claude
   calling the Skill tool), with their attributed time and tokens;
-- **subagents** by type, with duration, tool calls, model and tokens;
+- **subagents** by type, with their active time (`SubagentStart` →
+  `SubagentStop`, background and resumed runs included), tool calls, model
+  and tokens;
+- **every session turn by turn**: the session page lists all its turns
+  (system-injected prompts such as task notifications, subagent hand-backs
+  and slash commands get a readable label) with their duration, tool
+  calls, subagents, test runs, tokens and cost. Open a turn to see its
+  **trace**: one swimlane for the main thread and one per subagent, each
+  tool call drawn where it ran (permission waits, failures and calls known
+  only from transcripts marked), with an activity filter ("when did Claude
+  run the tests?"), zoom, and the chronological call log;
 - **tokens** (input, output, cache write, cache read) and an
   **API-equivalent cost** per session, model, skill and day;
 - **models**: sessions, API responses, tokens, cache-read share and cost per
@@ -128,7 +138,7 @@ inactivity for sessions that never ended cleanly).
 macOS (Apple silicon or Intel):
 
 ```sh
-VERSION=v0.2.0
+VERSION=v0.3.0
 TARGET="$([ "$(uname -m)" = arm64 ] && echo aarch64 || echo x86_64)-apple-darwin"
 mkdir -p ~/.local/bin
 curl -fsSL "https://github.com/TristanShz/claudit/releases/download/$VERSION/claudit-$VERSION-$TARGET.tar.gz" \

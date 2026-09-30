@@ -256,6 +256,22 @@ impl TestEnv {
         self.replay_hook_dir("activities");
     }
 
+    /// The synthetic trace session `c4e8a2f0-…` (see
+    /// `tests/fixtures/hooks/README.md`): its transcript
+    /// (`tests/fixtures/transcripts/trace`) and its hooks
+    /// (`tests/fixtures/hooks/trace/`), on 2026-03-07. Four turns: an
+    /// untimed `/implement 12`, a timed turn with parallel calls, a
+    /// permission prompt and a background subagent, a timed task
+    /// notification that waits on the resumed subagent, and an untimed
+    /// hand-back from the subagent.
+    pub fn populate_trace_session(&self) {
+        copy_tree(
+            &fixtures_dir().join("transcripts/trace"),
+            &self.paths.claude_projects_dir(),
+        );
+        self.replay_hook_dir("trace");
+    }
+
     /// Feeds every payload of `tests/fixtures/hooks/<dir>/`, in file-name
     /// order, at the receive time its `received_at.json` records.
     fn replay_hook_dir(&self, dir: &str) {

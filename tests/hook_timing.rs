@@ -251,9 +251,10 @@ fn a_subagent_run_has_a_duration_only_when_the_hooks_timed_it() {
     assert_eq!(
         runs,
         [
+            // SubagentStart 302.2 s → SubagentStop 365.5 s.
             (
                 SESSION_A.to_owned(),
-                Some(Duration::milliseconds(63_400)),
+                Some(Duration::milliseconds(63_300)),
                 1
             ),
             // Its transcript has a first and a last entry, but no hook

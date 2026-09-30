@@ -1,5 +1,6 @@
 //! The session page (`/sessions/{id}`): header, KPIs, turn timeline, the
-//! session's activities, tools, skills and subagents.
+//! list of every turn (each opening its trace, see [`super::turn_trace`]),
+//! the session's activities, tools, skills and subagents.
 
 use std::sync::Arc;
 
@@ -15,6 +16,7 @@ use crate::stats::activities;
 use crate::stats::session_detail::{self, SessionDetail};
 use crate::stats::skills::SkillTrigger;
 use crate::stats::time::{SegmentKind, TimeSplit, TurnTime};
+use crate::stats::trace::{self, TurnRow};
 use crate::web::AppState;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
@@ -40,6 +42,8 @@ struct SessionPage {
     turns: usize,
     /// Every turn, timed or not.
     turn_count: u64,
+    /// Every turn, oldest first.
+    turn_list: Vec<TurnListRow>,
     activities: Vec<ActivityRow>,
     tools: Vec<ToolRow>,
     skills: Vec<SkillUse>,
@@ -69,6 +73,58 @@ struct Kpi {
     label: &'static str,
     value: String,
     sub: String,
+}
+
+/// A row of the turn list.
+struct TurnListRow {
+    prompt_id: String,
+    number: usize,
+    started: String,
+    prompt: String,
+    /// `typed`, `command` or `injected` (CSS hook).
+    prompt_kind: &'static str,
+    /// Hook-timed; `–` otherwise.
+    duration: String,
+    calls: u64,
+    failed: u64,
+    subagents: u64,
+    tests: u64,
+    failed_tests: u64,
+    tokens: String,
+    cost: String,
+}
+
+fn turn_list(turns: &[TurnRow]) -> Vec<TurnListRow> {
+    turns
+        .iter()
+        .map(|t| TurnListRow {
+            prompt_id: t.prompt_id.clone(),
+            number: t.number,
+            started: t.started_at.map(format::local_time_s).unwrap_or_default(),
+            prompt: t
+                .prompt
+                .as_ref()
+                .map(|p| format::truncate(&p.text, 200))
+                .unwrap_or_default(),
+            prompt_kind: match &t.prompt {
+                Some(p) if p.kind.injected() => "injected",
+                Some(p) if p.kind == crate::stats::prompt::PromptKind::Command => "command",
+                _ => "typed",
+            },
+            duration: t.duration.map_or_else(|| "–".to_owned(), format::duration),
+            calls: t.tool_calls,
+            failed: t.failed_calls,
+            subagents: t.subagent_runs,
+            tests: t.test_runs,
+            failed_tests: t.failed_test_runs,
+            tokens: format::count(t.tokens.total()),
+            cost: if t.tokens.total() == 0 {
+                "–".to_owned()
+            } else {
+                format::cost(&t.cost)
+            },
+        })
+        .collect()
 }
 
 /// A skill invocation of the session.
@@ -106,7 +162,10 @@ struct TimelineTurn {
     segments: Vec<(usize, i64, i64)>,
 }
 
-fn timeline(turns: &[TurnTime]) -> Timeline {
+/// `rows` gives each turn's number and label (the turn list's).
+fn timeline(turns: &[TurnTime], rows: &[TurnRow]) -> Timeline {
+    let by_id: std::collections::HashMap<&str, &TurnRow> =
+        rows.iter().map(|r| (r.prompt_id.as_str(), r)).collect();
     Timeline {
         kinds: SegmentKind::ALL
             .into_iter()
@@ -118,28 +177,32 @@ fn timeline(turns: &[TurnTime]) -> Timeline {
         turns: turns
             .iter()
             .enumerate()
-            .map(|(i, turn)| TimelineTurn {
-                label: format!("#{}", i + 1),
-                prompt: format::truncate(
-                    &format::prompt(turn.prompt_text.as_deref().unwrap_or("")),
-                    300,
-                ),
-                started: format::local_time(turn.start),
-                duration_ms: (turn.end - turn.start).num_milliseconds(),
-                segments: turn
-                    .segments
-                    .iter()
-                    .map(|s| {
-                        (
-                            SegmentKind::ALL
-                                .iter()
-                                .position(|k| *k == s.kind)
-                                .expect("every kind is listed"),
-                            (s.start - turn.start).num_milliseconds(),
-                            (s.end - turn.start).num_milliseconds(),
-                        )
-                    })
-                    .collect(),
+            .map(|(i, turn)| {
+                let row = by_id.get(turn.prompt_id.as_str());
+                TimelineTurn {
+                    label: format!("#{}", row.map_or(i + 1, |r| r.number)),
+                    prompt: format::truncate(
+                        row.and_then(|r| r.prompt.as_ref())
+                            .map_or("", |p| p.text.as_str()),
+                        300,
+                    ),
+                    started: format::local_time(turn.start),
+                    duration_ms: (turn.end - turn.start).num_milliseconds(),
+                    segments: turn
+                        .segments
+                        .iter()
+                        .map(|s| {
+                            (
+                                SegmentKind::ALL
+                                    .iter()
+                                    .position(|k| *k == s.kind)
+                                    .expect("every kind is listed"),
+                                (s.start - turn.start).num_milliseconds(),
+                                (s.end - turn.start).num_milliseconds(),
+                            )
+                        })
+                        .collect(),
+                }
             })
             .collect(),
     }
@@ -161,7 +224,12 @@ fn kpis(detail: &SessionDetail) -> Vec<Kpi> {
     let calls: u64 = detail.tools.iter().map(|t| t.stats.calls).sum();
     let failures: u64 = detail.tools.iter().map(|t| t.stats.failures).sum();
     let runs = detail.subagents.len();
-    // Runs overlap and may lack hook timings: their own durations, summed.
+    // Runs overlap and may lack hook timings: their own active time, summed.
+    let timed_runs = detail
+        .subagents
+        .iter()
+        .filter(|r| r.duration.is_some())
+        .count();
     let run_time = detail
         .subagents
         .iter()
@@ -192,12 +260,17 @@ fn kpis(detail: &SessionDetail) -> Vec<Kpi> {
         },
         Kpi {
             kind: "subagent",
-            label: "Subagent runs",
+            label: "Waiting on subagents",
             value: format::duration(time.subagent),
             sub: format!(
-                "{runs} run{} ({} in total) · {}",
+                "{runs} run{}, {} active{} · {}",
                 if runs == 1 { "" } else { "s" },
                 format::duration(run_time),
+                if timed_runs < runs {
+                    format!(" ({timed_runs} timed)")
+                } else {
+                    String::new()
+                },
                 share(time.subagent)
             ),
         },
@@ -220,10 +293,7 @@ fn header(detail: &SessionDetail) -> Header {
     };
     Header {
         session_id: detail.session_id.clone(),
-        prompt: format::truncate(
-            &format::prompt(detail.first_prompt.as_deref().unwrap_or("")),
-            400,
-        ),
+        prompt: format::truncate(detail.first_prompt.as_deref().unwrap_or(""), 400),
         project: rows::project_name(&cwd),
         cwd,
         branch: detail.git_branch.clone().unwrap_or_default(),
@@ -261,6 +331,12 @@ pub(in crate::web) async fn handler(
         let path = format!("/sessions/{}", detail.session_id);
         let frame = Frame::load(&conn, &state, filters, &path, false)?;
         let turns = detail.turns.len();
+        let turn_rows = trace::session_turns(
+            &conn,
+            &detail.session_id,
+            &frame.rules,
+            PriceTable::builtin(),
+        )?;
         let breakdown = activities::session_activities(&conn, &detail.session_id, &frame.rules)?;
         let activities = rows::activity_rows(&breakdown);
         Ok(Some(SessionPage {
@@ -269,10 +345,11 @@ pub(in crate::web) async fn handler(
             imported: detail.imported,
             activities_by_calls: rows::activities_by_calls(&breakdown),
             kpis: kpis(&detail),
-            timeline_json: format::script_json(&timeline(&detail.turns))?,
+            timeline_json: format::script_json(&timeline(&detail.turns, &turn_rows))?,
             timeline_height: 60 + 46 * turns.max(1),
             turns,
             turn_count: detail.turn_count,
+            turn_list: turn_list(&turn_rows),
             activities,
             skills: detail
                 .skills

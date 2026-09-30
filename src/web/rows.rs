@@ -134,6 +134,8 @@ pub(super) fn subagent_rows(stats: Vec<SubagentTypeStat>) -> Vec<SubagentRow> {
 /// One subagent run.
 pub(super) struct RunRow {
     pub agent_type: String,
+    /// The Agent call's description (empty when unknown).
+    pub description: String,
     pub session_id: String,
     pub started: String,
     pub duration: String,
@@ -150,6 +152,7 @@ pub(super) fn run_rows(runs: Vec<SubagentRun>) -> Vec<RunRow> {
             tool_calls: r.tool_calls,
             model: r.model.unwrap_or_default(),
             tokens: format::count(r.tokens.total()),
+            description: r.description.unwrap_or_default(),
             agent_type: r.agent_type,
             session_id: r.session_id,
         })
@@ -215,7 +218,7 @@ pub(super) fn session_rows(
         .into_iter()
         .map(|s| {
             let cwd = s.cwd.unwrap_or_default();
-            let prompt = format::prompt(&s.first_prompt.unwrap_or_default());
+            let prompt = s.first_prompt.unwrap_or_default();
             SessionRow {
                 started: format::local_time(s.started_at),
                 project: project_name(&cwd),

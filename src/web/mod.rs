@@ -59,6 +59,10 @@ fn app(state: AppState) -> Router {
         .route("/models", get(pages::models::handler))
         .route("/sessions", get(pages::sessions::handler))
         .route("/sessions/{id}", get(pages::session::handler))
+        .route(
+            "/sessions/{id}/turns/{prompt_id}",
+            get(pages::turn_trace::handler),
+        )
         .route("/refresh", post(refresh::handler))
         .route("/assets/{file}", get(assets::handler))
         .with_state(Arc::new(state))

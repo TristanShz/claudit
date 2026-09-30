@@ -41,7 +41,9 @@ flowchart LR
    [Ingest pipeline](#ingest-pipeline)).
 4. **Serve.** `claudit serve` answers every page from the typed stats API
    (`src/stats/`) and renders Askama templates. It never polls: data
-   refreshes when the page is reloaded.
+   refreshes when the page is reloaded. A session page loads each turn's
+   trace (`/sessions/{id}/turns/{prompt_id}`, an HTML fragment) with htmx
+   only when the turn is opened.
 
 ## Module map
 
@@ -69,7 +71,7 @@ flowchart LR
 | `src/ingest/reingest.rs` | Reset-and-replay, `DERIVED_TABLES`, `KEPT_TABLES`. |
 | `src/pricing.rs` | `PriceTable` (from `pricing/prices.toml`), `Usd` (exact picodollars), `Cost`. |
 | `src/activities.rs` | `ActivityRules` (from `activities/rules.toml`, plus the user's `activities.toml`): classifies a tool call into an activity and a detail. |
-| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `sessions`, `time`, `tools`, `skills`, `subagents`, `ingest_status`. |
+| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `prompt` (labels of injected prompts), `sessions`, `session_detail`, `time`, `trace` (a session's turns and each turn's trace), `tools`, `skills`, `subagents`, `ingest_status`. |
 | `src/web/` | axum router bound to `127.0.0.1`, one module per page under `pages/`, embedded assets (`assets.rs`), query-string filters (`filter_params.rs`), display helpers (`format.rs`). |
 | `templates/` | Askama templates: `base.html`, `pages/`, `sections/` (one per dashboard section), `partials/`. |
 | `assets/` | htmx, ECharts, `claudit.js` (chart renderers), `claudit.css`; compiled into the binary. |
@@ -202,7 +204,7 @@ ingested first.
 
 | Column | Source |
 | --- | --- |
-| `prompt_text` | First non-meta prompt text of the turn (redacted). |
+| `prompt_text` | First prompt text of the turn (redacted): the first non-meta user entry, or a meta entry Claude Code injected to open the turn (`promptSource: "system"`, e.g. a subagent's `<agent-message>` hand-back); `UserPromptSubmit`'s `prompt` otherwise. |
 | `permission_mode`, `effort` | Transcript. |
 | `start_at_us`, `end_at_us` | Earliest and latest main-thread transcript entry. |
 | `submit_at_us`, `stop_at_us` | `UserPromptSubmit` and `Stop` receive times. |
@@ -233,6 +235,12 @@ known), `total_duration_ms` (`totalDurationMs`), `total_tool_use_count`
 `SubagentStop`, the parent's Agent tool response, and the subagent's
 transcript and `.meta.json`: first non-empty value wins, earliest start,
 latest stop.
+
+**`subagent_events`**: one row per `SubagentStart` / `SubagentStop`, key
+(`agent_id`, `at_us`, `event`); also `session_id`, `prompt_id`. A run can
+stop and be resumed (a `SendMessage` to a background agent), so the events
+are kept rather than merged: reports pair each start with the next stop
+(see [Subagent runs](#subagent-runs)).
 
 ## Ingest pipeline
 
@@ -287,6 +295,7 @@ key, so replaying an event or re-reading a transcript never double-counts:
 | `transcript_entries` | `uuid` |
 | `skill_invocations` | `session_id` + `invocation_id` |
 | `subagent_runs` | `agent_id` |
+| `subagent_events` | `agent_id` + `at_us` + `event` |
 | `permission_requests` | `session_id` + `at_us` + `tool_name` |
 | `notifications` | `session_id` + `at_us` + `notification_type` |
 
@@ -318,7 +327,7 @@ for the ingest lock, then, in one transaction:
 1. re-sanitizes every `raw_events` payload with the current patterns and
    stores the result (a pattern added later applies retroactively);
 2. deletes every row of `DERIVED_TABLES` (`permission_requests`,
-   `notifications`, `skill_invocations`, `subagent_runs`, `tool_calls`,
+   `notifications`, `skill_invocations`, `subagent_events`, `subagent_runs`, `tool_calls`,
    `sessions`, `turns`, `api_messages`, `transcript_entries`; children before
    parents), the derived `meta` keys, and the transcript offsets (spool
    offsets are kept, so archived spool lines are not archived twice);
@@ -333,7 +342,8 @@ transcripts, `DERIVATION_VERSION` 1) would never see the old ones. The
 catch-up (`claudit ingest`, `serve`'s start) therefore compares the
 `derivation_version` in `meta` with `ingest::DERIVATION_VERSION` under the
 lock: if it is older or missing and the archive is not empty, it runs the
-reset-and-replay above before its passes (logged as `INFO` in
+reset-and-replay above before its passes (version 2 added `subagent_events`
+and the text of injected meta prompts) (logged as `INFO` in
 `logs/claudit.log`, reported as `IngestReport::rebuilt`), then stores the
 current version, so it happens once. A new archive just stores the version.
 `claudit reingest` stores it too. Bump the constant whenever ingest derives
@@ -371,9 +381,19 @@ notes. For each **main-thread turn** with both a `UserPromptSubmit` and a
   - a call known only from its transcript gives no interval (it would
     carry its permission prompt as tool time). Each call is one row
     whichever sources saw it, so it counts once, with the hook timing.
-- Calls to `Agent` / `Task` are **subagent** intervals; every other call's
-  execution is a **tool** interval. Calls made *inside* a subagent carry an
-  `agent_id` and are never main-thread time.
+- A call during which the main thread is **blocked on a subagent** gives a
+  **subagent** interval: an `Agent` / `Task` call (a foreground run lasts
+  as long as the call), or a blocking `TaskOutput` (`block` not false)
+  whose `task_id` is a subagent run of the session. Every other call's
+  execution is a **tool** interval, including waits that cannot be told
+  apart reliably (a `sleep` loop, `Monitor`): the turn trace shows what
+  they were. Calls made *inside* a subagent carry an `agent_id` and are
+  never main-thread time.
+- A **background** subagent (the Agent call returns in milliseconds with
+  `status: "async_launched"`) is not main-thread time: it runs alongside
+  whatever the main thread does (often after the turn has ended), so only
+  its Agent call's own milliseconds count. Its real duration is its run
+  time (below), and the trace draws it as its own lane.
 - Every interval is clipped to `[start, end]`. The turn is cut at every
   interval boundary, and each elementary slice is assigned to the
   highest-priority kind covering it: **subagent > tool > waiting > model**.
@@ -401,12 +421,59 @@ Aggregates (`time_breakdown`) sum turns, and assign each turn to the UTC day
 it started. The same hook-only rule applies everywhere time appears: tool
 durations and percentiles (`stats::tools`, `CallStats::timed_calls` of
 `calls`), activity time (`stats::activities`), skills' attributed time (the
-turn's hook window), and subagent durations (`totalDurationMs` from the
-Agent tool response, else that call's hook duration; never a transcript
-span). `waiting_by_tool` is a different measure: per tool, the sum over
+turn's hook window), and subagent durations (see [Subagent runs](#subagent-runs)). `waiting_by_tool` is a different measure: per tool, the sum over
 calls (subagent calls included) of `max(0, post − duration − pre)`, not
 unioned, alongside the count of `PermissionRequest` events for that tool;
 only hook-timed calls can be measured.
+
+### Subagent runs
+
+A run's duration (`stats::subagents`) is its **active time**: each
+`SubagentStart` paired with the next `SubagentStop` (receive times), the
+spans summed. A stop with no start before it (hooks installed while it ran)
+or a start with no stop (still running, interrupted) gives no span. Without
+any span, Claude Code's `totalDurationMs` from the Agent tool response
+(foreground runs); else no duration. Never the Agent call's hook duration
+(a background launch returns in milliseconds) nor a transcript span.
+
+### Turns and traces
+
+`stats::trace::session_turns` lists **every** turn of a session, oldest
+first, timed or not: its start (`UserPromptSubmit`, else its first
+transcript entry, an instant), its labelled prompt, its duration (hook-timed
+only, else none), completed calls and failures (subagents' included),
+subagent runs launched, test runs (calls of the built-in `Tests` activity)
+and their failures, tokens and cost (`cost::session_cost_by_turn`).
+
+`stats::trace::turn_trace` is one turn's trace:
+
+- **lanes**: the main thread (span: submit → stop), then every subagent run
+  launched in the turn or making calls in it (spans: all its active spans,
+  so a background run outliving the turn is shown whole), then runs of
+  other turns active during it (spans clipped to the trace);
+- **calls**: every `tool_calls` row of the turn (subagents' included), by
+  launch instant (`PreToolUse`, else the transcript's `tool_use` entry).
+  A hook-timed call has an execution `[post − duration_ms, post]` and a
+  permission wait `PreToolUse` → execution start; a call only a transcript
+  saw has only its launch instant (drawn as a tick). Each carries its
+  activity, status, hook error and a **summary** of its stored (redacted)
+  input: the Bash command, the file path, the Grep/Glob pattern and path,
+  the URL or query, `server · tool` for MCP, the skill and its arguments,
+  `subagent_type · description` for Agent, the task id; never an output.
+- the trace spans the turn and everything in it, so a lane can end long
+  after `Stop`.
+
+### Injected prompts
+
+Claude Code opens some turns itself. `stats::prompt::label` turns their
+markup into a label: `<task-notification>` → `Task notification: <summary>`,
+`<agent-message from="…">` → `Message from subagent: <description of its
+Agent call>`, `<command-name>` / `<command-args>` → `/name args`,
+`<bash-input>` → `! command`, `<local-command-…>` / `<bash-std…>` →
+`Local command output`, `<scheduled-task name=…>` → `Scheduled task: name`.
+A session's first prompt (session list, session page) is its first typed
+prompt, a slash command included, and only failing that its first prompt of
+any kind (`prompt::INJECTED_SQL`).
 
 ## Cost computation
 
@@ -492,5 +559,6 @@ Tests exercise external behavior through two seams only (see
 
 There are no tests on the HTTP layer or templates: they are thin adapters
 over the stats API. The one exception is `tests/web_pages.rs`, a render smoke
-check (every page answers 200 and contains its section ids; no assertion on
-content), because issues #11 and #12 require each page to render.
+check (every page, and a turn trace fragment, answers 200 and contains its
+section ids; no assertion on content), because issues #11 and #12 require
+each page to render.

@@ -48,6 +48,14 @@ pub(super) fn local_time(at: chrono::DateTime<chrono::Utc>) -> String {
         .to_string()
 }
 
+/// An instant in the machine's time zone, to the second:
+/// `2026-03-02 09:00:05`.
+pub(super) fn local_time_s(at: chrono::DateTime<chrono::Utc>) -> String {
+    at.with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
 /// A cost: `$12.34`, `$12.34+` when some models are unpriced, `unknown`
 /// when none is (never `$0` for unpriced tokens).
 pub(super) fn cost(cost: &crate::pricing::Cost) -> String {
@@ -67,30 +75,6 @@ pub(super) fn truncate(text: &str, max: usize) -> String {
     let text = text.as_str();
     match text.char_indices().nth(max) {
         Some((at, _)) => format!("{}…", text[..at].trim_end()),
-        None => text.to_owned(),
-    }
-}
-
-/// A prompt for display: a typed slash command, which transcripts store as
-/// `<command-message>…</command-message><command-name>/x</command-name>
-/// <command-args>…</command-args>`, becomes `/x …`.
-pub(super) fn prompt(text: &str) -> String {
-    let tag = |name: &str| {
-        let open = format!("<{name}>");
-        let close = format!("</{name}>");
-        let start = text.find(&open)? + open.len();
-        let end = start + text[start..].find(&close)?;
-        Some(text[start..end].trim())
-    };
-    match tag("command-name") {
-        Some(name) => {
-            let args = tag("command-args").unwrap_or("");
-            if args.is_empty() {
-                name.to_owned()
-            } else {
-                format!("{name} {args}")
-            }
-        }
         None => text.to_owned(),
     }
 }

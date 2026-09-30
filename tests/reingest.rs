@@ -57,6 +57,9 @@ struct Reports {
     session_a_subagent_runs: Vec<stats::subagents::SubagentRun>,
     session_a_detail: Option<stats::session_detail::SessionDetail>,
     session_a_activities: stats::activities::ActivityBreakdown,
+    session_a_cost_by_turn: Vec<stats::cost::CostLine>,
+    session_a_turns: Vec<stats::trace::TurnRow>,
+    session_a_turn_traces: Vec<Option<stats::trace::TurnTrace>>,
 }
 
 /// Fixture session `8d0c5a3e-…`, whose hooks [`populate`] replays.
@@ -123,6 +126,18 @@ fn reports(env: &TestEnv) -> Reports {
             .expect("session_detail"),
         session_a_activities: stats::activities::session_activities(&conn, SESSION_A, rules)
             .expect("session_activities"),
+        session_a_cost_by_turn: stats::cost::session_cost_by_turn(&conn, SESSION_A, prices)
+            .expect("session_cost_by_turn"),
+        session_a_turns: stats::trace::session_turns(&conn, SESSION_A, rules, prices)
+            .expect("session_turns"),
+        session_a_turn_traces: stats::trace::session_turns(&conn, SESSION_A, rules, prices)
+            .expect("session_turns")
+            .iter()
+            .map(|turn| {
+                stats::trace::turn_trace(&conn, SESSION_A, &turn.prompt_id, rules, prices)
+                    .expect("turn_trace")
+            })
+            .collect(),
     }
 }
 

@@ -505,3 +505,42 @@ fn no_secret_reaches_the_database_after_a_reingest() {
 
     assert_no_secret(&every_stored_text(&env));
 }
+
+/// Every turn trace of [`SESSION`], serialized.
+fn every_trace(env: &TestEnv) -> String {
+    let conn = env.db();
+    let rules = claudit::activities::ActivityRules::builtin();
+    let prices = claudit::pricing::PriceTable::builtin();
+    let turns = claudit::stats::trace::session_turns(&conn, SESSION, rules, prices).unwrap();
+    assert!(!turns.is_empty());
+    turns
+        .iter()
+        .map(|turn| {
+            let trace =
+                claudit::stats::trace::turn_trace(&conn, SESSION, &turn.prompt_id, rules, prices)
+                    .unwrap()
+                    .unwrap();
+            serde_json::to_string(&trace).unwrap()
+        })
+        .collect()
+}
+
+#[test]
+fn trace_summaries_show_redacted_inputs_and_never_outputs() {
+    let hooks = TestEnv::new();
+    record_a_leaky_session(&hooks);
+    hooks.ingest();
+    let transcript = TestEnv::new();
+    transcript.drop_transcript(
+        &format!("{PROJECT}/{SESSION}.jsonl"),
+        &transcript_with_secret_tool_call(),
+    );
+    transcript.ingest();
+
+    for env in [&hooks, &transcript] {
+        let traces = every_trace(env);
+        assert_no_secret(&traces);
+        assert!(!traces.contains(TOOL_RESULT_MARKER), "tool output shown");
+        assert!(traces.contains("ANTHROPIC_API_KEY=[REDACTED]"), "{traces}");
+    }
+}

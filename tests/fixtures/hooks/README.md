@@ -77,6 +77,42 @@ documents what each activity adds up to.
 | 12 | Bash `git commit -m "fix: flaky test"` | 300 | ok |
 | 13 | Bash `gh pr create --fill` | 1600 | ok |
 
+## `trace/`: session `c4e8a2f0-…`
+
+A synthetic session in `/Users/alice/code/acme-api` (branch
+`fix/flaky-login`) on 2026-03-07, for the session trace
+(`tests/session_trace.rs`). Its transcript is
+`tests/fixtures/transcripts/trace/`; `TestEnv::populate_trace_session`
+drops it and replays these payloads, numbered in arrival order, at the
+receive times of `received_at.json` (offsets below from 10:00:00 UTC). Agent
+`a5d7f9b1c3e5a7b9d` is an Explore subagent run **in the background**.
+
+| Offset (s) | Payload | Notes |
+| --- | --- | --- |
+| 0 | `UserPromptSubmit` | turn `…0101`, "Fix the flaky login test" |
+| 2.0 / 2.1 | `PreToolUse` Bash `cargo test`, `PermissionRequest` | |
+| 3.0 / 3.1 | `PreToolUse` Read, Grep | in parallel |
+| 3.5 / 3.6 | `PostToolUse` Read (200 ms), Grep (300 ms) | ran 3.3 → 3.5, 3.3 → 3.6 |
+| 12.0 | `PostToolUse` Bash (4000 ms) | waited 2 → 8, ran 8 → 12 |
+| 14.0 / 14.05 | `PreToolUse` / `PostToolUse` Agent (30 ms) | `status: async_launched` |
+| 14.1 | `SubagentStart` | |
+| 18.0 | `Stop` | the turn ends, the subagent runs on |
+| 20.0 / 25.0 | subagent Bash `cargo test login -- --nocapture` | `PostToolUseFailure`, 4800 ms |
+| 30.0 / 31.0 | subagent WebFetch (900 ms) | |
+| 40.0 | `SubagentStop` | |
+| 41.0 | `UserPromptSubmit` | turn `…0102`, a `<task-notification>` |
+| 56.0 | `PreToolUse` TaskOutput (`block: true`, the agent's id) | |
+| 60.0 / 70.0 | `SubagentStart` / `SubagentStop` | the run resumes |
+| 71.0 | `PostToolUse` TaskOutput (15000 ms) | the main thread waited on the subagent 56 → 71 |
+| 72.0 / 72.05 | Edit (50 ms) | |
+| 75.0 | `Stop` | |
+
+Expected: turn `…0101` (18 s) splits into model 7.95 s, waiting 5.72 s,
+tools 4.3 s, subagent 30 ms (only the Agent call: the background run is not
+main-thread time); turn `…0102` (34 s) into model 18.95 s, subagent 15 s
+(the blocking TaskOutput), tools 50 ms. The run is active 14.1 → 40 and
+60 → 70 s: 35.9 s.
+
 ## `captured-2.1.284/`: a real session
 
 Captured from **Claude Code 2.1.284** running headless

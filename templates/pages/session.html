@@ -36,9 +36,9 @@
   {% endfor %}
 </section>
 <section class="card" id="timeline-section">
-  <h2>Turn timeline <span class="muted small">each lane starts at its prompt</span></h2>
+  <h2>Turn timeline <span class="muted small">each lane starts at its prompt · {{ turns }} of {{ turn_count }} turn{% if turn_count != 1 %}s{% endif %} timed by the hooks</span></h2>
   {% if turns == 0 %}
-  <p class="empty">No completed turn recorded for this session.</p>
+  <p class="empty">No turn of this session was timed by the hooks (see the turn list below).</p>
   {% else %}
   <ul class="legend">
     <li><span class="swatch swatch-model"></span>Model</li>
@@ -51,6 +51,34 @@
   {% endif %}
 </section>
 {% endif %}
+<section class="card" id="turns-section">
+  <h2>Turns <span class="muted small">open a turn to see when each tool call and subagent ran</span></h2>
+  {% if turn_list.is_empty() %}
+  <p class="empty">No turn recorded for this session.</p>
+  {% else %}
+  <div class="turn-list">
+    <div class="turn-row turn-head" aria-hidden="true">
+      <span class="num">#</span><span>Started</span><span>Prompt</span><span class="num">Duration</span><span class="num">Calls</span><span class="num">Subagents</span><span class="num">Tests</span><span class="num">Tokens</span><span class="num">Cost</span>
+    </div>
+    {% for t in turn_list %}
+    <details class="turn" hx-get="/sessions/{{ header.session_id }}/turns/{{ t.prompt_id }}" hx-trigger="toggle once" hx-target="find .turn-body" hx-swap="innerHTML">
+      <summary class="turn-row">
+        <span class="num">#{{ t.number }}</span>
+        <span class="nowrap muted">{{ t.started }}</span>
+        <span class="turn-prompt prompt-{{ t.prompt_kind }}" title="{{ t.prompt }}">{% if t.prompt.is_empty() %}<span class="muted">(no prompt)</span>{% else %}{{ t.prompt }}{% endif %}</span>
+        <span class="num" title="{% if t.duration == "–" %}Not timed by the hooks{% else %}UserPromptSubmit → Stop{% endif %}">{{ t.duration }}</span>
+        <span class="num">{{ t.calls }}{% if t.failed > 0 %} <span class="failed" title="failed">({{ t.failed }})</span>{% endif %}</span>
+        <span class="num">{% if t.subagents > 0 %}{{ t.subagents }}{% else %}<span class="muted">–</span>{% endif %}</span>
+        <span class="num">{% if t.tests > 0 %}{{ t.tests }}{% if t.failed_tests > 0 %} <span class="failed" title="failed test runs">({{ t.failed_tests }})</span>{% endif %}{% else %}<span class="muted">–</span>{% endif %}</span>
+        <span class="num turn-tokens">{{ t.tokens }}</span>
+        <span class="num turn-cost">{{ t.cost }}</span>
+      </summary>
+      <div class="turn-body"><p class="muted small">Loading the trace…</p></div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
 <section class="card" id="session-activities-section">
   <h2>Activities <span class="muted small">{% if activities_by_calls %}tool calls{% else %}tool time{% endif %} by activity, subagents' calls included</span></h2>
   {% if activities.is_empty() %}
@@ -95,14 +123,16 @@
     {% if subagents.is_empty() %}
     <p class="empty">No subagent run in this session.</p>
     {% else %}
+    <div class="table-scroll">
     <table class="ranking">
       <thead><tr><th>Type</th><th class="num">Duration</th><th class="num">Tools</th><th>Model</th><th class="num">Tokens</th></tr></thead>
       <tbody>
         {% for r in subagents %}
-        <tr><td title="{{ r.started }}">{{ r.agent_type }}</td><td class="num">{{ r.duration }}</td><td class="num">{{ r.tool_calls }}</td><td class="muted small">{{ r.model }}</td><td class="num">{{ r.tokens }}</td></tr>
+        <tr><td title="{{ r.started }}">{{ r.agent_type }}{% if !r.description.is_empty() %} <span class="muted small">{{ r.description }}</span>{% endif %}</td><td class="num">{{ r.duration }}</td><td class="num">{{ r.tool_calls }}</td><td class="muted small">{{ r.model }}</td><td class="num">{{ r.tokens }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% endif %}
   </section>
 </div>

@@ -10,6 +10,42 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-30
+
+### Added
+
+- **Turn list and turn traces on the session page**: every turn of the
+  session is listed, timed or not, with its start, prompt, duration
+  (hook-timed only), tool calls and failures, subagents, test runs, tokens
+  and cost (`stats::trace::session_turns`). Opening a turn loads its trace
+  (`/sessions/{id}/turns/{prompt_id}`, `stats::trace::turn_trace`): one
+  swimlane for the main thread and one per subagent run (its active
+  spans), each tool call drawn from execution start to end with its
+  permission wait before it, failed calls outlined, calls known only from
+  transcripts as ticks at their launch; a tooltip with the call's redacted
+  input summary (command, file, pattern, URL, MCP server and tool, skill,
+  subagent), timings, status and error; activity filter chips (Tests,
+  Build, …, Failed); zoom; and the chronological call log below.
+- Per-turn cost (`stats::cost::session_cost_by_turn`); subagent runs carry
+  their Agent call's `description` and their active spans.
+
+### Fixed
+
+- **Subagent run time** comes from `SubagentStart` → `SubagentStop`: each
+  start paired with the next stop, summed, so background runs (whose Agent
+  call returns in milliseconds) and runs resumed later are measured as
+  they ran; then `totalDurationMs`; never the Agent call's own duration.
+  New table `subagent_events`; the archive is rebuilt once on upgrade.
+- **Waiting on subagents**: a blocking `TaskOutput` on a subagent now
+  counts as subagent time, like a foreground Agent call; a background run
+  no longer shows as a few milliseconds of "Subagent runs" next to its real
+  time (the session KPI shows runs and their active time).
+- **Readable injected prompts**: task notifications, subagent hand-backs
+  (`<agent-message>`), slash commands and local command output are
+  labelled everywhere prompts show (session header, session list,
+  timeline, turn list), and a session's first prompt is its first typed
+  one. Hand-back turns imported from transcripts now have their text.
+
 ## [0.2.0] - 2026-09-30
 
 ### Added
@@ -123,6 +159,7 @@ First public release.
 - Prebuilt macOS binaries (arm64 and x86_64) published on each tag, and
   `cargo install --git https://github.com/TristanShz/claudit`.
 
-[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/TristanShz/claudit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/TristanShz/claudit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/TristanShz/claudit/releases/tag/v0.1.0
