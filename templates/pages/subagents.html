@@ -26,7 +26,7 @@
     <thead><tr><th>Start</th><th>Type</th><th class="num">Duration</th><th class="num">Tool calls</th><th>Model</th><th class="num">Tokens</th></tr></thead>
     <tbody>
       {% for r in runs %}
-      <tr><td class="nowrap"><a href="/sessions/{{ r.session_id }}{{ frame.query }}">{{ r.started }}</a></td><td>{{ r.agent_type }}</td><td class="num">{{ r.duration }}</td><td class="num">{{ r.tool_calls }}</td><td class="muted">{{ r.model }}</td><td class="num">{{ r.tokens }}</td></tr>
+      <tr><td class="nowrap"><a href="/sessions/{{ r.session_id }}{{ frame.query }}">{{ r.started }}</a></td><td>{{ r.agent_type }}{% if !r.description.is_empty() %} <span class="muted small">{{ r.description }}</span>{% endif %}</td><td class="num">{{ r.duration }}</td><td class="num">{{ r.tool_calls }}</td><td class="muted">{{ r.model }}</td><td class="num">{{ r.tokens }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

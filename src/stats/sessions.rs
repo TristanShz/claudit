@@ -26,6 +26,8 @@ pub struct SessionSummary {
     pub started_at: DateTime<Utc>,
     pub last_activity_at: DateTime<Utc>,
     pub turns: u64,
+    /// Its first typed prompt (a slash command included), else its first
+    /// prompt, labelled (see [`super::prompt`]).
     pub first_prompt: Option<String>,
     /// Tokens of the session, subagents included (only the filtered model's
     /// under a model filter).
@@ -54,7 +56,7 @@ pub fn session_list(conn: &Connection, filter: &Filter) -> Result<Vec<SessionSum
                 (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.session_id),
                 (SELECT t.prompt_text FROM turns t
                   WHERE t.session_id = s.session_id AND t.prompt_text IS NOT NULL
-                  ORDER BY COALESCE(t.submit_at_us, t.start_at_us) LIMIT 1),
+                  ORDER BY {INJECTED}, COALESCE(t.submit_at_us, t.start_at_us) LIMIT 1),
                 (SELECT COUNT(*) FROM tool_calls tc
                   WHERE tc.session_id = s.session_id AND tc.post_at_us IS NOT NULL),
                 {IMPORTED},
@@ -64,7 +66,8 @@ pub fn session_list(conn: &Connection, filter: &Filter) -> Result<Vec<SessionSum
          GROUP BY s.session_id
          ORDER BY s.first_at_us DESC, s.session_id",
         TokenTotals::SUMS,
-        where_.clause
+        where_.clause,
+        INJECTED = super::prompt::INJECTED_SQL,
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(where_.params), |row| {
@@ -76,7 +79,9 @@ pub fn session_list(conn: &Connection, filter: &Filter) -> Result<Vec<SessionSum
             started_at: clock::from_micros(row.get(4)?),
             last_activity_at: clock::from_micros(row.get(5)?),
             turns: row.get::<_, i64>(6)? as u64,
-            first_prompt: row.get(7)?,
+            first_prompt: row
+                .get::<_, Option<String>>(7)?
+                .map(|text| super::prompt::label(&text, &HashMap::new()).text),
             tool_calls: row.get::<_, i64>(8)?.max(0) as u64,
             imported: row.get(9)?,
             tokens: TokenTotals::from_row(row, 10)?,

@@ -1,0 +1,20 @@
+{
+  "session_id": "c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e",
+  "prompt_id": "d0000000-0000-4000-8000-000000000101",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-acme-api/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e.jsonl",
+  "cwd": "/Users/alice/code/acme-api",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cargo test",
+    "description": "Run the tests"
+  },
+  "tool_use_id": "toolu_01TraceBash0001",
+  "tool_response": {
+    "stdout": "test result: ok. 12 passed",
+    "stderr": "",
+    "interrupted": false
+  },
+  "duration_ms": 4000
+}

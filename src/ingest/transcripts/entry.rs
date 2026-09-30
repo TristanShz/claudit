@@ -144,6 +144,9 @@ struct Envelope {
     agent_id: Option<String>,
     #[serde(default)]
     is_meta: Option<bool>,
+    /// `typed`, `system`, … (recent Claude Code versions).
+    #[serde(default)]
+    prompt_source: Option<String>,
     #[serde(default)]
     permission_mode: Option<String>,
     #[serde(default)]
@@ -197,7 +200,12 @@ pub(super) fn parse(line: &str) -> Line {
     };
     let kind = match entry_type.as_str() {
         "user" => Kind::User {
-            prompt_text: if envelope.is_meta == Some(true) {
+            // Meta entries (skill expansions, caveats) are not prompts,
+            // except a turn Claude Code opens itself: a subagent's
+            // hand-back is a meta entry with `promptSource: "system"`.
+            prompt_text: if envelope.is_meta == Some(true)
+                && envelope.prompt_source.as_deref() != Some("system")
+            {
                 None
             } else {
                 envelope

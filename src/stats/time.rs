@@ -8,9 +8,12 @@
 //! work, so they would inflate every component. Per turn:
 //! - **wall** = Stop receive time − UserPromptSubmit receive time;
 //! - **subagent** = the union of the execution intervals
-//!   `[post − duration_ms, post]` of the main thread's `Agent` / `Task`
-//!   calls (the subagent's own tool calls, which carry an `agent_id`, are
-//!   never main-thread time);
+//!   `[post − duration_ms, post]` of the main-thread calls blocked on a
+//!   subagent: `Agent` / `Task` calls, and blocking `TaskOutput` calls on a
+//!   subagent of the session (see `WAITS_ON_SUBAGENT`). A background run is
+//!   not main-thread time: its Agent call returns at once and it runs
+//!   alongside the main thread. The subagent's own tool calls, which carry
+//!   an `agent_id`, are never main-thread time;
 //! - **tool** = the union of the other main-thread calls' execution
 //!   intervals, minus subagent time; parallel calls overlap instead of
 //!   adding up;
@@ -210,8 +213,18 @@ pub struct TimeCoverage {
     pub hooks_since: Option<DateTime<Utc>>,
 }
 
-/// Tool names whose execution is a subagent run.
-const SUBAGENT_TOOLS: [&str; 2] = ["Agent", "Task"];
+/// SQL over `tool_calls tc`: whether the call's execution is the main
+/// thread waiting on a subagent. An `Agent` / `Task` call (a foreground run
+/// lasts as long as the call; a background launch returns at once), or a
+/// blocking `TaskOutput` whose `task_id` is a subagent of the session (the
+/// main thread waits for that run to finish). Anything else (a `sleep`, a
+/// `Monitor`) cannot be told apart reliably and stays tool time.
+const WAITS_ON_SUBAGENT: &str = "(tc.tool_name IN ('Agent', 'Task')
+     OR (tc.tool_name = 'TaskOutput' AND json_valid(tc.tool_input)
+         AND COALESCE(json_extract(tc.tool_input, '$.block'), 1)
+         AND EXISTS (SELECT 1 FROM subagent_runs r
+                     WHERE r.session_id = tc.session_id
+                       AND r.agent_id = json_extract(tc.tool_input, '$.task_id'))))";
 
 /// Turn start and end: the `UserPromptSubmit` and `Stop` receive times.
 /// Transcript times are never used for time: a transcript's span includes
@@ -388,19 +401,19 @@ fn load_turns(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec
     })?;
     // Hook-timed calls only: a transcript's tool_use → tool_result span
     // includes permission prompts.
-    let mut calls_stmt = conn.prepare(
-        "SELECT tool_name, hook_pre_at_us, hook_post_at_us, hook_duration_ms
-         FROM tool_calls
+    let mut calls_stmt = conn.prepare(&format!(
+        "SELECT {WAITS_ON_SUBAGENT}, hook_pre_at_us, hook_post_at_us, hook_duration_ms
+         FROM tool_calls tc
          WHERE session_id = ?1 AND prompt_id = ?2 AND agent_id IS NULL
-           AND hook_post_at_us IS NOT NULL",
-    )?;
+           AND hook_post_at_us IS NOT NULL"
+    ))?;
     let mut turns = Vec::new();
     for row in rows {
         let (session_id, prompt_id, prompt_text, start_us, end_us) = row?;
         let calls = calls_stmt
             .query_map(params![session_id, prompt_id], |row| {
                 Ok(CallTimes::new(
-                    &row.get::<_, String>(0)?,
+                    row.get::<_, bool>(0)?,
                     row.get(1)?,
                     row.get(2)?,
                     row.get(3)?,
@@ -431,7 +444,7 @@ struct CallTimes {
 }
 
 impl CallTimes {
-    fn new(tool_name: &str, pre: Option<i64>, post: i64, duration_ms: Option<i64>) -> Self {
+    fn new(subagent: bool, pre: Option<i64>, post: i64, duration_ms: Option<i64>) -> Self {
         let exec_start = match duration_ms {
             Some(ms) => Some(clock::execution_start_us(post, ms)),
             None => pre,
@@ -442,7 +455,7 @@ impl CallTimes {
             _ => None,
         };
         Self {
-            subagent: SUBAGENT_TOOLS.contains(&tool_name),
+            subagent,
             exec,
             wait,
         }

@@ -1,0 +1,19 @@
+{
+  "session_id": "c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e",
+  "prompt_id": "d0000000-0000-4000-8000-000000000102",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-acme-api/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e.jsonl",
+  "cwd": "/Users/alice/code/acme-api",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/Users/alice/code/acme-api/src/session_store.rs",
+    "old_string": "lock()",
+    "new_string": "lock_owned()"
+  },
+  "tool_use_id": "toolu_01TraceEdit0001",
+  "tool_response": {
+    "filePath": "/Users/alice/code/acme-api/src/session_store.rs"
+  },
+  "duration_ms": 50
+}

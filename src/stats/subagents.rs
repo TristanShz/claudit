@@ -2,10 +2,14 @@
 //!
 //! A run merges what hooks (SubagentStart/Stop, the parent's Agent tool
 //! response) and the subagent's transcript know about it:
-//! - **duration**: Claude Code's `totalDurationMs` (the parent's Agent tool
-//!   response), else the hook-reported duration of that Agent call; none
-//!   for a run the hooks did not time (a transcript's span includes the
-//!   permission prompts inside the run);
+//! - **duration**: the run's **active spans**, each `SubagentStart` paired
+//!   with the next `SubagentStop` (receive times), summed: a background run
+//!   (the Agent call returns at once) and a run resumed later (a
+//!   SendMessage) are measured as they really ran. Else Claude Code's
+//!   `totalDurationMs` (the parent's Agent tool response); else none. Never
+//!   the Agent call's own duration (a background launch returns in
+//!   milliseconds) nor a transcript span (it includes the permission
+//!   prompts inside the run);
 //! - **tool calls**: Claude Code's `totalToolUseCount`, else the tool calls
 //!   hooks recorded with the run's `agent_id`;
 //! - **model**: the Agent response's `resolvedModel`, else the model of
@@ -37,7 +41,13 @@ pub struct SubagentRun {
     pub parent_tool_use_id: Option<String>,
     pub model: Option<String>,
     pub started_at: Option<DateTime<Utc>>,
+    /// Its active time (see the module docs).
     pub duration: Option<Duration>,
+    /// Its hook-timed active spans (start, stop), oldest first; empty when
+    /// the hooks saw no start/stop pair.
+    pub active: Vec<(DateTime<Utc>, DateTime<Utc>)>,
+    /// The `description` of the Agent call that ran it.
+    pub description: Option<String>,
     pub tool_calls: u64,
     pub tokens: TokenTotals,
 }
@@ -61,6 +71,21 @@ const RUN_COLUMNS: FilterColumns = FilterColumns {
     branch: Some("s.git_branch"),
     model: Some("r.model"),
 };
+
+/// A display name per run of `runs`: its Agent call's description, else
+/// its type (for labelling a subagent's messages).
+pub(super) fn display_names(runs: &[SubagentRun]) -> std::collections::HashMap<String, String> {
+    runs.iter()
+        .map(|r| {
+            (
+                r.agent_id.clone(),
+                r.description
+                    .clone()
+                    .unwrap_or_else(|| r.agent_type.clone()),
+            )
+        })
+        .collect()
+}
 
 /// Filtered runs, oldest first.
 pub fn subagent_runs(conn: &Connection, filter: &Filter) -> Result<Vec<SubagentRun>> {
@@ -136,9 +161,10 @@ fn load_runs(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec<
                              (SELECT m.model FROM api_messages m WHERE m.agent_id = r.agent_id
                               GROUP BY m.model ORDER BY COUNT(*) DESC, m.model LIMIT 1)) AS model,
                     r.started_at_us,
-                    COALESCE(r.total_duration_ms,
-                             (SELECT tc.hook_duration_ms FROM tool_calls tc
-                              WHERE tc.tool_use_id = r.parent_tool_use_id)) AS duration_ms,
+                    r.total_duration_ms AS duration_ms,
+                    (SELECT json_extract(tc.tool_input, '$.description') FROM tool_calls tc
+                     WHERE tc.tool_use_id = r.parent_tool_use_id
+                       AND json_valid(tc.tool_input)) AS description,
                     COALESCE(r.total_tool_use_count,
                              (SELECT COUNT(*) FROM tool_calls tc
                               WHERE tc.agent_id = r.agent_id AND tc.post_at_us IS NOT NULL))
@@ -147,7 +173,7 @@ fn load_runs(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec<
              WHERE r.agent_type IS NOT NULL AND r.agent_type <> ''
          )
          SELECT r.agent_id, r.session_id, r.prompt_id, r.agent_type, r.parent_tool_use_id,
-                r.model, r.started_at_us, r.duration_ms, r.tool_calls, {}
+                r.model, r.started_at_us, r.duration_ms, r.tool_calls, r.description, {}
          FROM runs r
          LEFT JOIN sessions s ON s.session_id = r.session_id
          LEFT JOIN api_messages m ON m.agent_id = r.agent_id AND m.session_id = r.session_id
@@ -157,6 +183,9 @@ fn load_runs(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec<
         TokenTotals::SUMS
     );
     let mut stmt = conn.prepare(&sql)?;
+    let mut events = conn.prepare(
+        "SELECT event, at_us FROM subagent_events WHERE agent_id = ?1 ORDER BY at_us, event",
+    )?;
     let rows = stmt.query_map(params_from_iter(params), |row| {
         Ok(SubagentRun {
             agent_id: row.get(0)?,
@@ -170,8 +199,45 @@ fn load_runs(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec<
                 .get::<_, Option<i64>>(7)?
                 .map(|ms| Duration::milliseconds(ms.max(0))),
             tool_calls: row.get::<_, i64>(8)?.max(0) as u64,
-            tokens: TokenTotals::from_row(row, 9)?,
+            description: row.get::<_, Option<String>>(9).unwrap_or(None),
+            tokens: TokenTotals::from_row(row, 10)?,
+            active: Vec::new(),
         })
     })?;
-    Ok(rows.collect::<Result<_, _>>()?)
+    let mut runs: Vec<SubagentRun> = rows.collect::<Result<_, _>>()?;
+    for run in &mut runs {
+        let spans = active_spans(&mut events, &run.agent_id)?;
+        if !spans.is_empty() {
+            run.duration = Some(spans.iter().fold(Duration::zero(), |sum, (start, stop)| {
+                sum + (*stop - *start)
+            }));
+        }
+        run.active = spans;
+    }
+    Ok(runs)
+}
+
+/// The hook-timed active spans of a run: each `SubagentStart` paired with
+/// the next `SubagentStop`. A stop without a start before it (the hooks
+/// were installed while the run was going) and a start without a stop (a
+/// run still going, or interrupted) give no span.
+pub(super) fn active_spans(
+    events: &mut rusqlite::Statement<'_>,
+    agent_id: &str,
+) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>)>> {
+    let mut spans = Vec::new();
+    let mut open: Option<i64> = None;
+    let mut rows = events.query([agent_id])?;
+    while let Some(row) = rows.next()? {
+        let (event, at_us): (String, i64) = (row.get(0)?, row.get(1)?);
+        match (event.as_str(), open) {
+            ("start", None) => open = Some(at_us),
+            ("stop", Some(start)) => {
+                spans.push((clock::from_micros(start), clock::from_micros(at_us)));
+                open = None;
+            }
+            _ => {}
+        }
+    }
+    Ok(spans)
 }

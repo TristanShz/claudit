@@ -27,6 +27,8 @@ pub struct SessionDetail {
     /// calls whose hooks carried no session start).
     pub started_at: Option<DateTime<Utc>>,
     pub last_activity_at: Option<DateTime<Utc>>,
+    /// Its first typed prompt (a slash command included), else its first
+    /// prompt, labelled (see [`super::prompt`]).
     pub first_prompt: Option<String>,
     /// The main thread's model (the one most of its API responses used).
     pub model: Option<String>,
@@ -109,15 +111,21 @@ pub fn session_detail(
             .optional()?;
     }
 
+    let subagents = subagents::session_subagent_runs(conn, session_id)?;
+    let names = subagents::display_names(&subagents);
     let first_prompt: Option<String> = conn
         .query_row(
-            "SELECT prompt_text FROM turns
-             WHERE session_id = ?1 AND prompt_text IS NOT NULL
-             ORDER BY COALESCE(submit_at_us, start_at_us) LIMIT 1",
+            &format!(
+                "SELECT t.prompt_text FROM turns t
+                 WHERE t.session_id = ?1 AND t.prompt_text IS NOT NULL
+                 ORDER BY {}, COALESCE(t.submit_at_us, t.start_at_us) LIMIT 1",
+                super::prompt::INJECTED_SQL
+            ),
             [session_id],
-            |row| row.get(0),
+            |row| row.get::<_, String>(0),
         )
-        .optional()?;
+        .optional()?
+        .map(|text| super::prompt::label(&text, &names).text);
     let model: Option<String> = conn
         .query_row(
             "SELECT model FROM api_messages
@@ -171,6 +179,6 @@ pub fn session_detail(
         turns,
         tools,
         skills: skills::session_skill_invocations(conn, session_id)?,
-        subagents: subagents::session_subagent_runs(conn, session_id)?,
+        subagents,
     }))
 }

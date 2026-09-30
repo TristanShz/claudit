@@ -95,14 +95,16 @@
     {% if subagents.is_empty() %}
     <p class="empty">No subagent run in this session.</p>
     {% else %}
+    <div class="table-scroll">
     <table class="ranking">
       <thead><tr><th>Type</th><th class="num">Duration</th><th class="num">Tools</th><th>Model</th><th class="num">Tokens</th></tr></thead>
       <tbody>
         {% for r in subagents %}
-        <tr><td title="{{ r.started }}">{{ r.agent_type }}</td><td class="num">{{ r.duration }}</td><td class="num">{{ r.tool_calls }}</td><td class="muted small">{{ r.model }}</td><td class="num">{{ r.tokens }}</td></tr>
+        <tr><td title="{{ r.started }}">{{ r.agent_type }}{% if !r.description.is_empty() %} <span class="muted small">{{ r.description }}</span>{% endif %}</td><td class="num">{{ r.duration }}</td><td class="num">{{ r.tool_calls }}</td><td class="muted small">{{ r.model }}</td><td class="num">{{ r.tokens }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% endif %}
   </section>
 </div>

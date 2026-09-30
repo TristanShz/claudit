@@ -22,6 +22,24 @@ pub(crate) struct RunUpdate<'a> {
     pub total_tool_use_count: Option<i64>,
 }
 
+/// Records a `SubagentStart` (`start`) or `SubagentStop` (`stop`) receive
+/// time in `subagent_events` (idempotent).
+pub(crate) fn record_event(
+    conn: &Connection,
+    agent_id: &str,
+    session_id: &str,
+    prompt_id: Option<&str>,
+    event: &str,
+    at_us: i64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO subagent_events (agent_id, session_id, prompt_id, event, at_us)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![agent_id, session_id, prompt_id, event, at_us],
+    )?;
+    Ok(())
+}
+
 pub(crate) fn upsert(conn: &Connection, run: &RunUpdate) -> Result<()> {
     fn non_empty(s: Option<&str>) -> Option<&str> {
         s.filter(|s| !s.is_empty())

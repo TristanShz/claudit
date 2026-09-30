@@ -70,27 +70,3 @@ pub(super) fn truncate(text: &str, max: usize) -> String {
         None => text.to_owned(),
     }
 }
-
-/// A prompt for display: a typed slash command, which transcripts store as
-/// `<command-message>…</command-message><command-name>/x</command-name>
-/// <command-args>…</command-args>`, becomes `/x …`.
-pub(super) fn prompt(text: &str) -> String {
-    let tag = |name: &str| {
-        let open = format!("<{name}>");
-        let close = format!("</{name}>");
-        let start = text.find(&open)? + open.len();
-        let end = start + text[start..].find(&close)?;
-        Some(text[start..end].trim())
-    };
-    match tag("command-name") {
-        Some(name) => {
-            let args = tag("command-args").unwrap_or("");
-            if args.is_empty() {
-                name.to_owned()
-            } else {
-                format!("{name} {args}")
-            }
-        }
-        None => text.to_owned(),
-    }
-}

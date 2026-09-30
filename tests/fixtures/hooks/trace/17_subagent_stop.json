@@ -1,0 +1,15 @@
+{
+  "session_id": "c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e",
+  "prompt_id": "d0000000-0000-4000-8000-000000000101",
+  "transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-acme-api/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e.jsonl",
+  "cwd": "/Users/alice/code/acme-api",
+  "permission_mode": "default",
+  "hook_event_name": "SubagentStop",
+  "agent_id": "a5d7f9b1c3e5a7b9d",
+  "agent_type": "Explore",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/Users/alice/.claude/projects/-Users-alice-code-acme-api/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e/subagents/agent-a5d7f9b1c3e5a7b9d.jsonl",
+  "last_assistant_message": "It is a race.",
+  "background_tasks": [],
+  "session_crons": []
+}

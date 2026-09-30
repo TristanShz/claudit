@@ -1,6 +1,7 @@
 //! The session page (`/sessions/{id}`): header, KPIs, turn timeline, the
 //! session's activities, tools, skills and subagents.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
@@ -12,6 +13,7 @@ use serde::Serialize;
 use crate::db;
 use crate::pricing::PriceTable;
 use crate::stats::activities;
+use crate::stats::prompt;
 use crate::stats::session_detail::{self, SessionDetail};
 use crate::stats::skills::SkillTrigger;
 use crate::stats::time::{SegmentKind, TimeSplit, TurnTime};
@@ -106,7 +108,8 @@ struct TimelineTurn {
     segments: Vec<(usize, i64, i64)>,
 }
 
-fn timeline(turns: &[TurnTime]) -> Timeline {
+/// `names` names subagents for the labels of their messages.
+fn timeline(turns: &[TurnTime], names: &HashMap<String, String>) -> Timeline {
     Timeline {
         kinds: SegmentKind::ALL
             .into_iter()
@@ -121,7 +124,11 @@ fn timeline(turns: &[TurnTime]) -> Timeline {
             .map(|(i, turn)| TimelineTurn {
                 label: format!("#{}", i + 1),
                 prompt: format::truncate(
-                    &format::prompt(turn.prompt_text.as_deref().unwrap_or("")),
+                    &turn
+                        .prompt_text
+                        .as_deref()
+                        .map(|text| prompt::label(text, names).text)
+                        .unwrap_or_default(),
                     300,
                 ),
                 started: format::local_time(turn.start),
@@ -161,7 +168,12 @@ fn kpis(detail: &SessionDetail) -> Vec<Kpi> {
     let calls: u64 = detail.tools.iter().map(|t| t.stats.calls).sum();
     let failures: u64 = detail.tools.iter().map(|t| t.stats.failures).sum();
     let runs = detail.subagents.len();
-    // Runs overlap and may lack hook timings: their own durations, summed.
+    // Runs overlap and may lack hook timings: their own active time, summed.
+    let timed_runs = detail
+        .subagents
+        .iter()
+        .filter(|r| r.duration.is_some())
+        .count();
     let run_time = detail
         .subagents
         .iter()
@@ -192,12 +204,17 @@ fn kpis(detail: &SessionDetail) -> Vec<Kpi> {
         },
         Kpi {
             kind: "subagent",
-            label: "Subagent runs",
+            label: "Waiting on subagents",
             value: format::duration(time.subagent),
             sub: format!(
-                "{runs} run{} ({} in total) · {}",
+                "{runs} run{}, {} active{} · {}",
                 if runs == 1 { "" } else { "s" },
                 format::duration(run_time),
+                if timed_runs < runs {
+                    format!(" ({timed_runs} timed)")
+                } else {
+                    String::new()
+                },
                 share(time.subagent)
             ),
         },
@@ -220,10 +237,7 @@ fn header(detail: &SessionDetail) -> Header {
     };
     Header {
         session_id: detail.session_id.clone(),
-        prompt: format::truncate(
-            &format::prompt(detail.first_prompt.as_deref().unwrap_or("")),
-            400,
-        ),
+        prompt: format::truncate(detail.first_prompt.as_deref().unwrap_or(""), 400),
         project: rows::project_name(&cwd),
         cwd,
         branch: detail.git_branch.clone().unwrap_or_default(),
@@ -269,7 +283,21 @@ pub(in crate::web) async fn handler(
             imported: detail.imported,
             activities_by_calls: rows::activities_by_calls(&breakdown),
             kpis: kpis(&detail),
-            timeline_json: format::script_json(&timeline(&detail.turns))?,
+            timeline_json: format::script_json(&timeline(
+                &detail.turns,
+                &detail
+                    .subagents
+                    .iter()
+                    .map(|r| {
+                        (
+                            r.agent_id.clone(),
+                            r.description
+                                .clone()
+                                .unwrap_or_else(|| r.agent_type.clone()),
+                        )
+                    })
+                    .collect(),
+            ))?,
             timeline_height: 60 + 46 * turns.max(1),
             turns,
             turn_count: detail.turn_count,

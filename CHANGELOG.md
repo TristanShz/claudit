@@ -10,6 +10,23 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Subagent run time** comes from `SubagentStart` → `SubagentStop`: each
+  start paired with the next stop, summed, so background runs (whose Agent
+  call returns in milliseconds) and runs resumed later are measured as
+  they ran; then `totalDurationMs`; never the Agent call's own duration.
+  New table `subagent_events`; the archive is rebuilt once on upgrade.
+- **Waiting on subagents**: a blocking `TaskOutput` on a subagent now
+  counts as subagent time, like a foreground Agent call; a background run
+  no longer shows as a few milliseconds of "Subagent runs" next to its real
+  time (the session KPI shows runs and their active time).
+- **Readable injected prompts**: task notifications, subagent hand-backs
+  (`<agent-message>`), slash commands and local command output are
+  labelled everywhere prompts show (session header, session list,
+  timeline, turn list), and a session's first prompt is its first typed
+  one. Hand-back turns imported from transcripts now have their text.
+
 ## [0.2.0] - 2026-09-30
 
 ### Added
