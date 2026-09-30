@@ -1,5 +1,5 @@
 //! The overview (home) page: KPIs, where the time goes, the top tools,
-//! skills and subagents, and the most recent sessions.
+//! skills, subagents and models, and the most recent sessions.
 
 mod time_section;
 
@@ -15,13 +15,13 @@ use crate::pricing::{Cost, PriceTable};
 use crate::stats::consumption::{self, Consumption};
 use crate::stats::time::TimeBreakdown;
 use crate::stats::tools::RankedCalls;
-use crate::stats::{cost, sessions, skills, subagents, time, tools};
+use crate::stats::{cost, models, sessions, skills, subagents, time, tools};
 use crate::web::AppState;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
 use crate::web::frame::Frame;
-use crate::web::rows::{self, SessionRow, SkillRow, SubagentRow, ToolRow};
+use crate::web::rows::{self, ModelRow, SessionRow, SkillRow, SubagentRow, ToolRow};
 use time_section::TimeSection;
 
 /// Rows shown per ranked list.
@@ -38,6 +38,7 @@ struct OverviewPage {
     tools: Vec<ToolRow>,
     skills: Vec<SkillRow>,
     subagents: Vec<SubagentRow>,
+    models: Vec<ModelRow>,
     sessions: Vec<SessionRow>,
     more_sessions: usize,
 }
@@ -141,6 +142,8 @@ pub(in crate::web) async fn handler(
         let mut tools = rows::tool_rows(tool_ranking);
         let mut skills = rows::skill_rows(skills::skill_ranking(&conn, &filter)?);
         let mut subagents = rows::subagent_rows(subagents::subagent_ranking(&conn, &filter)?);
+        let mut models = rows::model_rows(&models::model_usage(&conn, &filter, prices)?);
+        models.truncate(TOP);
         tools.truncate(TOP);
         skills.truncate(TOP);
         subagents.truncate(TOP);
@@ -152,6 +155,7 @@ pub(in crate::web) async fn handler(
             tools,
             skills,
             subagents,
+            models,
             sessions: rows::session_rows(recent, &costs),
             more_sessions,
         })

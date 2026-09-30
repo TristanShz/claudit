@@ -38,6 +38,7 @@ struct Reports {
     cost_by_skill: Vec<stats::cost::CostLine>,
     cost_by_agent_type: Vec<stats::cost::CostLine>,
     daily_series: Vec<stats::cost::DailyUsage>,
+    model_usage: stats::models::ModelsReport,
     acme_tool_ranking: Vec<stats::tools::RankedCalls>,
     acme_consumption: stats::consumption::Consumption,
     acme_sessions: Vec<stats::sessions::SessionSummary>,
@@ -45,6 +46,7 @@ struct Reports {
     acme_skills: Vec<stats::skills::SkillStat>,
     acme_subagents: Vec<stats::subagents::SubagentTypeStat>,
     acme_total_cost: stats::cost::CostLine,
+    acme_model_usage: stats::models::ModelsReport,
     session_a_turn_times: Vec<stats::time::TurnTime>,
     session_a_skill_invocations: Vec<stats::skills::SkillInvocation>,
     session_a_subagent_runs: Vec<stats::subagents::SubagentRun>,
@@ -89,6 +91,7 @@ fn reports(env: &TestEnv) -> Reports {
         cost_by_skill: cost(stats::cost::cost_by_skill),
         cost_by_agent_type: cost(stats::cost::cost_by_agent_type),
         daily_series: stats::cost::daily_series(&conn, &all, prices).expect("daily_series"),
+        model_usage: stats::models::model_usage(&conn, &all, prices).expect("model_usage"),
         acme_tool_ranking: env.tool_ranking(&acme),
         acme_consumption: env.consumption(&acme),
         acme_sessions: env.sessions(&acme),
@@ -96,6 +99,7 @@ fn reports(env: &TestEnv) -> Reports {
         acme_skills: env.skills(&acme),
         acme_subagents: env.subagents(&acme),
         acme_total_cost: stats::cost::total_cost(&conn, &acme, prices).expect("total_cost"),
+        acme_model_usage: stats::models::model_usage(&conn, &acme, prices).expect("model_usage"),
         session_a_turn_times: stats::time::session_turn_times(&conn, SESSION_A)
             .expect("session_turn_times"),
         session_a_skill_invocations: stats::skills::session_skill_invocations(&conn, SESSION_A)

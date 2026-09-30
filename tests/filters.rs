@@ -51,6 +51,8 @@ struct Digest {
     cost_by_skill: Vec<String>,
     cost_by_agent_type: Vec<String>,
     daily_series_days: Vec<String>,
+    /// `model_usage`: models, as ranked.
+    models: Vec<String>,
 }
 
 fn digest(env: &TestEnv, filter: &Filter) -> Digest {
@@ -121,6 +123,12 @@ fn digest(env: &TestEnv, filter: &Filter) -> Digest {
         cost_by_skill: keys(stats::cost::cost_by_skill(&conn, filter, prices).unwrap()),
         cost_by_agent_type: keys(stats::cost::cost_by_agent_type(&conn, filter, prices).unwrap()),
         daily_series_days: days,
+        models: stats::models::model_usage(&conn, filter, prices)
+            .unwrap()
+            .models
+            .into_iter()
+            .map(|m| m.model)
+            .collect(),
     }
 }
 
@@ -184,6 +192,7 @@ fn login_session_only() -> Digest {
         cost_by_session: strings(&[LOGIN]),
         cost_by_model: strings(&["claude-sonnet-4-6"]),
         daily_series_days: strings(&["2026-03-03"]),
+        models: strings(&["claude-sonnet-4-6"]),
         ..Digest::default()
     }
 }
@@ -238,6 +247,7 @@ fn a_project_filter_keeps_only_that_directory_in_every_report() {
             cost_by_session: strings(&[WEB_APP]),
             cost_by_model: strings(&["claude-opus-5-5"]),
             daily_series_days: strings(&["2026-03-04"]),
+            models: strings(&["claude-opus-5-5"]),
             ..Digest::default()
         }
     );
@@ -273,6 +283,7 @@ fn a_model_filter_keeps_what_that_model_did_in_every_report() {
             cost_by_model: strings(&[HAIKU]),
             cost_by_agent_type: strings(&["general-purpose"]),
             daily_series_days: strings(&["2026-03-02"]),
+            models: strings(&[HAIKU]),
             ..Digest::default()
         }
     );

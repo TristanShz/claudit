@@ -94,3 +94,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .facts.totals { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .kpi-label .swatch { vertical-align: 0; }
 .spaced { margin-top: 20px !important; }
+/* A share of a whole, as a bar filling its cell (models). */
+.share-bar { width: 100%; min-width: 80px; height: 10px; border-radius: 3px; overflow: hidden; background: var(--border); }
+.share-bar > span { display: block; height: 100%; background: var(--accent); }
+.models td.name { max-width: 240px; }
+.models td.bar-cell { width: 28%; }

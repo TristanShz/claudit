@@ -13,7 +13,10 @@ SQLite archive and serves a local dashboard to analyze them after the fact:
   calling the Skill tool), with their attributed time and tokens;
 - **subagents** by type, with duration, tool calls, model and tokens;
 - **tokens** (input, output, cache write, cache read) and an
-  **API-equivalent cost** per session, model, skill and day.
+  **API-equivalent cost** per session, model, skill and day;
+- **models**: sessions, API responses, tokens, cache-read share and cost per
+  model, with its share of all tokens and cost, split between the main
+  thread and subagents.
 
 It runs entirely on your machine: no account, no telemetry, no network.
 

@@ -54,6 +54,7 @@ fn app(state: AppState) -> Router {
         .route("/tools", get(pages::tools::handler))
         .route("/skills", get(pages::skills::handler))
         .route("/subagents", get(pages::subagents::handler))
+        .route("/models", get(pages::models::handler))
         .route("/sessions", get(pages::sessions::handler))
         .route("/sessions/{id}", get(pages::session::handler))
         .route("/refresh", post(refresh::handler))

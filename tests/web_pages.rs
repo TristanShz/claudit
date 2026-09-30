@@ -70,6 +70,7 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
                 "tools-section",
                 "skills-section",
                 "subagents-section",
+                "models-section",
                 "sessions-section",
                 "ingest-warning",
             ][..],
@@ -84,6 +85,7 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
         ),
         ("/skills", &["skills-section"][..]),
         ("/subagents", &["subagents-section", "runs-section"][..]),
+        ("/models", &["models-section", "models-threads-section"][..]),
         ("/sessions", &["sessions-section"][..]),
         (
             "/sessions/8d0c5a3e-1b2f-4c6d-9e7a-0f1b2c3d4e5f?branch=main",

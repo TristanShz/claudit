@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}claudit · Models{% endblock %}
+{% block content %}
+<section class="card" id="models-section">
+  <h2>Models <span class="muted">· {{ total_tokens }} tokens · {{ total_cost }}</span></h2>
+  <p class="muted small">API responses per model as the API reports it, subagents included. Cost at API list prices: a model missing from the price table has an unknown cost, and shares of cost are then shares of the priced part.</p>
+  {% if models.is_empty() %}
+  <p class="empty">No API response recorded for this filter.</p>
+  {% else %}
+  {% include "partials/model_table.html" %}
+  {% endif %}
+</section>
+<section class="card" id="models-threads-section">
+  <h2>Main thread and subagents</h2>
+  {% if models.is_empty() %}
+  <p class="empty">No API response recorded for this filter.</p>
+  {% else %}
+  <div class="table-scroll">
+  <table class="ranking">
+    <thead>
+      <tr><th rowspan="2">Model</th><th class="num" colspan="3">Main thread</th><th class="num" colspan="3">Subagents</th></tr>
+      <tr><th class="num">Responses</th><th class="num">Tokens</th><th class="num">Cost</th><th class="num">Responses</th><th class="num">Tokens</th><th class="num">Cost</th></tr>
+    </thead>
+    <tbody>
+      {% for m in models %}
+      <tr>
+        <td class="name" title="{{ m.model }}">{{ m.model }}</td>
+        <td class="num">{{ m.main_messages }}</td><td class="num">{{ m.main_tokens }}</td><td class="num">{% if m.main_messages > 0 %}{{ m.main_cost }}{% else %}–{% endif %}</td>
+        <td class="num">{{ m.subagent_messages }}</td><td class="num">{{ m.subagent_tokens }}</td><td class="num">{% if m.subagent_messages > 0 %}{{ m.subagent_cost }}{% else %}–{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

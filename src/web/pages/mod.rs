@@ -1,5 +1,6 @@
 //! One module per dashboard page.
 
+pub(super) mod models;
 pub(super) mod overview;
 pub(super) mod session;
 pub(super) mod sessions;

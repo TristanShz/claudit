@@ -10,6 +10,14 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- **Models**: an overview block and a `/models` page with, per model, the
+  sessions that used it, API responses, tokens, cache-read share and
+  API-equivalent cost, its share of all tokens and cost, and the split
+  between the main thread and subagents
+  (`stats::models::model_usage`).
+
 ## [0.1.0] - Unreleased
 
 First public release.

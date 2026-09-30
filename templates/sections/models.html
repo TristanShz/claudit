@@ -1,0 +1,8 @@
+<section class="card" id="models-section">
+  <h2>Models <a class="all-link" href="/models{{ frame.query }}">All models →</a></h2>
+  {% if models.is_empty() %}
+  <p class="empty">No API response recorded for this filter.</p>
+  {% else %}
+  {% include "partials/model_table.html" %}
+  {% endif %}
+</section>

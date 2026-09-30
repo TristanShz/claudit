@@ -68,7 +68,7 @@ flowchart LR
 | `src/ingest/purge.rs` | Spool purge. |
 | `src/ingest/reingest.rs` | Reset-and-replay, `DERIVED_TABLES`, `KEPT_TABLES`. |
 | `src/pricing.rs` | `PriceTable` (from `pricing/prices.toml`), `Usd` (exact picodollars), `Cost`. |
-| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `consumption`, `cost`, `sessions`, `time`, `tools`, `skills`, `subagents`, `ingest_status`. |
+| `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `consumption`, `cost`, `models`, `sessions`, `time`, `tools`, `skills`, `subagents`, `ingest_status`. |
 | `src/web/` | axum router bound to `127.0.0.1`, one module per page under `pages/`, embedded assets (`assets.rs`), query-string filters (`filter_params.rs`), display helpers (`format.rs`). |
 | `templates/` | Askama templates: `base.html`, `pages/`, `sections/` (one per dashboard section), `partials/`. |
 | `assets/` | htmx, ECharts, `claudit.js` (chart renderers), `claudit.css`; compiled into the binary. |
@@ -380,6 +380,11 @@ matches exactly: a model missing from the table is reported as unknown
 (`Cost.unknown_models`, `unknown_tokens`) rather than priced as its family.
 Because cost is computed at query time, correcting the table and rebuilding
 reprices the whole archive without re-ingesting.
+
+`stats::models::model_usage` prices the same sums per model and thread
+(main thread vs subagents), and reports each model's share of the filtered
+tokens and of the *priced* cost (a model the table lacks has no cost share,
+and the others' shares are then shares of the known part).
 
 ## The stats API
 

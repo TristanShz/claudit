@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use super::format;
 use crate::pricing::Cost;
+use crate::stats::models::ModelsReport;
 use crate::stats::sessions::SessionSummary;
 use crate::stats::skills::SkillStat;
 use crate::stats::subagents::{SubagentRun, SubagentTypeStat};
@@ -210,6 +211,61 @@ pub(super) fn session_rows(
                     .map_or_else(|| "–".to_owned(), format::cost),
                 cwd,
                 session_id: s.session_id,
+            }
+        })
+        .collect()
+}
+
+/// A model (overview block and `/models`).
+pub(super) struct ModelRow {
+    pub model: String,
+    pub sessions: u64,
+    pub api_messages: u64,
+    pub tokens: String,
+    /// Share of all tokens, e.g. `42%`.
+    pub token_share: String,
+    /// The same share as a CSS width, e.g. `42.13`.
+    pub token_pct: String,
+    /// e.g. `80%`; empty without input tokens.
+    pub cache_read_share: String,
+    pub cost: String,
+    /// Share of the priced cost, e.g. `61%`; `–` when unpriced.
+    pub cost_share: String,
+    pub main_messages: u64,
+    pub main_tokens: String,
+    pub main_cost: String,
+    pub subagent_messages: u64,
+    pub subagent_tokens: String,
+    pub subagent_cost: String,
+}
+
+pub(super) fn model_rows(report: &ModelsReport) -> Vec<ModelRow> {
+    let pct = |share: f64| format!("{:.0}%", share * 100.0);
+    report
+        .models
+        .iter()
+        .map(|m| {
+            let token_share = report.token_share(m);
+            ModelRow {
+                model: if m.model.is_empty() {
+                    "(no model)".to_owned()
+                } else {
+                    m.model.clone()
+                },
+                sessions: m.sessions,
+                api_messages: m.api_messages,
+                tokens: format::count(m.tokens.total()),
+                token_share: pct(token_share),
+                token_pct: format!("{:.2}", token_share * 100.0),
+                cache_read_share: m.tokens.cache_read_share().map(pct).unwrap_or_default(),
+                cost: format::cost(&m.cost),
+                cost_share: report.cost_share(m).map_or_else(|| "–".to_owned(), pct),
+                main_messages: m.main.api_messages,
+                main_tokens: format::count(m.main.tokens.total()),
+                main_cost: format::cost(&m.main.cost),
+                subagent_messages: m.subagents.api_messages,
+                subagent_tokens: format::count(m.subagents.tokens.total()),
+                subagent_cost: format::cost(&m.subagents.cost),
             }
         })
         .collect()
