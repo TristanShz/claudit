@@ -2,11 +2,13 @@
 //!
 //! Every ranking counts completed calls, successful or failed, and orders
 //! rows by call count, then total duration (both descending), then name.
-//! Calls known only from a transcript (backfilled sessions) are included,
-//! with estimated durations, counted in `estimated_duration_calls`.
+//! Calls known only from a transcript (sessions imported before
+//! `claudit install`) count as calls and failures, but have no duration:
+//! a transcript's tool_use → tool_result span includes permission prompts.
+//! Durations, and their percentiles, come from the calls the hooks timed
+//! (`timed_calls` of `calls`).
 //!
-//! Percentiles use the **nearest-rank** method over the calls that report a
-//! duration: the p-th percentile of `n` sorted durations is the value at
+//! Percentiles use the **nearest-rank** method over the hook-timed calls: the p-th percentile of `n` sorted durations is the value at
 //! 1-based rank `ceil(p / 100 × n)`. It is always an observed duration, and
 //! the median of an even count is the lower of the two middle values.
 //!
@@ -32,17 +34,16 @@ pub struct CallStats {
     pub calls: u64,
     /// Calls that ended in `PostToolUseFailure`.
     pub failures: u64,
-    /// Sum of the calls' execution time (`duration_ms`; estimated for
-    /// [`Self::estimated_duration_calls`] of them).
+    /// Sum of the hook-timed calls' execution time (`duration_ms` as
+    /// reported by Claude Code).
     pub total_duration_ms: u64,
-    /// Nearest-rank median execution time (`None` if no call reported one).
+    /// Nearest-rank median execution time (`None` if no call was timed).
     pub median_duration_ms: Option<u64>,
     /// Nearest-rank 95th percentile execution time.
     pub p95_duration_ms: Option<u64>,
-    /// Calls whose duration is estimated from the transcript (tool_result
-    /// time − tool_use time, permission prompts included) because no hook
-    /// timed them: sessions recorded before `claudit install`.
-    pub estimated_duration_calls: u64,
+    /// Calls the hooks timed, which the durations are measured on; the
+    /// others (sessions imported from transcripts) are only counted.
+    pub timed_calls: u64,
 }
 
 impl CallStats {
@@ -116,7 +117,7 @@ fn rank_where(
     params: Vec<Value>,
 ) -> Result<Vec<RankedCalls>> {
     let sql = format!(
-        "SELECT tc.{key}, tc.success, tc.duration_ms, tc.timing_source = 'transcript'
+        "SELECT tc.{key}, tc.success, tc.hook_duration_ms
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
          WHERE tc.post_at_us IS NOT NULL AND tc.{key} IS NOT NULL AND {clause}"
     );
@@ -127,7 +128,6 @@ fn rank_where(
     struct Group {
         calls: u64,
         failures: u64,
-        estimated: u64,
         durations: Vec<u64>,
     }
     let mut groups: BTreeMap<String, Group> = BTreeMap::new();
@@ -139,18 +139,14 @@ fn rank_where(
         }
         if let Some(ms) = row.get::<_, Option<i64>>(2)? {
             group.durations.push(ms.max(0) as u64);
-            if row.get::<_, Option<bool>>(3)? == Some(true) {
-                group.estimated += 1;
-            }
         }
     }
 
     let mut ranking: Vec<RankedCalls> = groups
         .into_iter()
-        .map(|(name, group)| {
-            let mut stats = CallStats::of(group.calls, group.failures, group.durations);
-            stats.estimated_duration_calls = group.estimated;
-            RankedCalls { name, stats }
+        .map(|(name, group)| RankedCalls {
+            name,
+            stats: CallStats::of(group.calls, group.failures, group.durations),
         })
         .collect();
     sort_ranking(&mut ranking);
@@ -159,7 +155,7 @@ fn rank_where(
 
 impl CallStats {
     /// The stats of `calls` calls, `failures` of them failed, of which those
-    /// reporting a duration took `durations` (any order).
+    /// the hooks timed took `durations` (any order).
     pub(super) fn of(calls: u64, failures: u64, mut durations: Vec<u64>) -> Self {
         durations.sort_unstable();
         CallStats {
@@ -168,7 +164,7 @@ impl CallStats {
             total_duration_ms: durations.iter().sum(),
             median_duration_ms: nearest_rank(&durations, 50),
             p95_duration_ms: nearest_rank(&durations, 95),
-            estimated_duration_calls: 0,
+            timed_calls: durations.len() as u64,
         }
     }
 }

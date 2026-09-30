@@ -2,8 +2,10 @@
 //!
 //! A run merges what hooks (SubagentStart/Stop, the parent's Agent tool
 //! response) and the subagent's transcript know about it:
-//! - **duration**: Claude Code's `totalDurationMs`, else the span from the
-//!   earliest known start to the latest known stop;
+//! - **duration**: Claude Code's `totalDurationMs` (the parent's Agent tool
+//!   response), else the hook-reported duration of that Agent call; none
+//!   for a run the hooks did not time (a transcript's span includes the
+//!   permission prompts inside the run);
 //! - **tool calls**: Claude Code's `totalToolUseCount`, else the tool calls
 //!   hooks recorded with the run's `agent_id`;
 //! - **model**: the Agent response's `resolvedModel`, else the model of
@@ -135,7 +137,8 @@ fn load_runs(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec<
                               GROUP BY m.model ORDER BY COUNT(*) DESC, m.model LIMIT 1)) AS model,
                     r.started_at_us,
                     COALESCE(r.total_duration_ms,
-                             (r.stopped_at_us - r.started_at_us) / 1000) AS duration_ms,
+                             (SELECT tc.hook_duration_ms FROM tool_calls tc
+                              WHERE tc.tool_use_id = r.parent_tool_use_id)) AS duration_ms,
                     COALESCE(r.total_tool_use_count,
                              (SELECT COUNT(*) FROM tool_calls tc
                               WHERE tc.agent_id = r.agent_id AND tc.post_at_us IS NOT NULL))

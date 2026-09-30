@@ -41,6 +41,8 @@ struct Digest {
     /// `turn_times`: session of each turn.
     turn_times: Vec<String>,
     time_breakdown_turns: u64,
+    /// `time_coverage`: recorded and imported sessions.
+    time_coverage: (u64, u64),
     waiting_by_tool: Vec<String>,
     skills: Vec<String>,
     subagents: Vec<String>,
@@ -96,6 +98,10 @@ fn digest(env: &TestEnv, filter: &Filter) -> Digest {
             .map(|t| t.session_id)
             .collect(),
         time_breakdown_turns: stats::time::time_breakdown(&conn, filter).unwrap().turns,
+        time_coverage: {
+            let c = stats::time::time_coverage(&conn, filter).unwrap();
+            (c.recorded_sessions, c.imported_sessions)
+        },
         waiting_by_tool: stats::time::waiting_by_tool(&conn, filter)
             .unwrap()
             .into_iter()
@@ -200,14 +206,17 @@ fn login_session_only() -> Digest {
         // Tokens: 5 + 150 + 3200 + 3000.
         consumption: (1, 1, 6355),
         session_list: strings(&[LOGIN]),
-        turn_times: strings(&[LOGIN]),
-        time_breakdown_turns: 1,
+        // Its turn has no UserPromptSubmit / Stop hook: not timed. The
+        // session is still hook-recorded (its Bash call).
+        time_coverage: (1, 0),
         total_cost_tokens: 6355,
         cost_by_session: strings(&[LOGIN]),
         cost_by_model: strings(&["claude-sonnet-4-6"]),
         daily_series_days: strings(&["2026-03-03"]),
         models: strings(&["claude-sonnet-4-6"]),
-        activities: strings(&["Git & GitHub"]),
+        // Git has the hook-timed Bash call; the transcript-only Edit call
+        // counts as a call with no time, so it comes second.
+        activities: strings(&["Git & GitHub", "Edit files"]),
         ..Digest::default()
     }
 }
@@ -256,8 +265,8 @@ fn a_project_filter_keeps_only_that_directory_in_every_report() {
             // Tokens: 2 + 500 + 5000 + 1000.
             consumption: (1, 1, 6502),
             session_list: strings(&[WEB_APP]),
-            turn_times: strings(&[WEB_APP]),
-            time_breakdown_turns: 1,
+            // Its turn has no UserPromptSubmit / Stop hook: not timed.
+            time_coverage: (1, 0),
             total_cost_tokens: 6502,
             cost_by_session: strings(&[WEB_APP]),
             cost_by_model: strings(&["claude-opus-5-5"]),
@@ -291,6 +300,7 @@ fn a_model_filter_keeps_what_that_model_did_in_every_report() {
             session_list: strings(&[SESSION_A]),
             turn_times: strings(&[SESSION_A]),
             time_breakdown_turns: 1,
+            time_coverage: (1, 0),
             waiting_by_tool: strings(&["Read"]),
             subagents: strings(&["general-purpose"]),
             subagent_runs: strings(&["a1f3c5e7b9d2c4e6f"]),

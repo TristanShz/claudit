@@ -1,4 +1,9 @@
 //! Session list with headline metrics.
+//!
+//! A session is **imported** when the hooks recorded nothing of it: it is
+//! known only from its transcripts, because it ran before `claudit install`.
+//! Imported sessions have tokens, cost, turns and tool calls, but no time
+//! (see [`super::time`]).
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -28,9 +33,16 @@ pub struct SessionSummary {
     /// Completed tool calls, subagents' included.
     pub tool_calls: u64,
     /// Where the time of its turns went (only the turns the filter keeps:
-    /// see [`super::time::turn_times`]).
+    /// see [`super::time::turn_times`]). Zero for an imported session.
     pub time: TimeSplit,
+    /// Known only from its transcripts: no hook recorded anything of it.
+    pub imported: bool,
 }
+
+/// SQL: whether the session of alias `s` is imported (no hook event
+/// archived for it).
+pub(super) const IMPORTED: &str =
+    "NOT EXISTS (SELECT 1 FROM raw_events r WHERE r.session_id = s.session_id)";
 
 /// Sessions started in the filter's range, most recent first. Project and
 /// branch match the session; a model filter keeps the sessions that used
@@ -45,6 +57,7 @@ pub fn session_list(conn: &Connection, filter: &Filter) -> Result<Vec<SessionSum
                   ORDER BY COALESCE(t.submit_at_us, t.start_at_us) LIMIT 1),
                 (SELECT COUNT(*) FROM tool_calls tc
                   WHERE tc.session_id = s.session_id AND tc.post_at_us IS NOT NULL),
+                {IMPORTED},
                 {}
          FROM sessions s LEFT JOIN api_messages m ON m.session_id = s.session_id
          WHERE s.first_at_us IS NOT NULL AND {}
@@ -65,7 +78,8 @@ pub fn session_list(conn: &Connection, filter: &Filter) -> Result<Vec<SessionSum
             turns: row.get::<_, i64>(6)? as u64,
             first_prompt: row.get(7)?,
             tool_calls: row.get::<_, i64>(8)?.max(0) as u64,
-            tokens: TokenTotals::from_row(row, 9)?,
+            imported: row.get(9)?,
+            tokens: TokenTotals::from_row(row, 10)?,
             time: TimeSplit::default(),
         })
     })?;

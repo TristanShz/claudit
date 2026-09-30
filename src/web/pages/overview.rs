@@ -18,6 +18,7 @@ use crate::stats::time::TimeBreakdown;
 use crate::stats::tools::RankedCalls;
 use crate::stats::{activities, cost, models, sessions, skills, subagents, time, tools};
 use crate::web::AppState;
+use crate::web::coverage::TimeNote;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
@@ -36,9 +37,13 @@ struct OverviewPage {
     frame: Frame,
     kpis: Kpis,
     time: TimeSection,
+    /// What the time sections cover.
+    time_note: TimeNote,
     activities: Vec<ActivityRow>,
-    /// Summed tool time, formatted.
+    /// Summed hook-timed tool time, formatted.
     activities_total: String,
+    /// Activity bars show calls: nothing in the filter was hook-timed.
+    activities_by_calls: bool,
     tools: Vec<ToolRow>,
     skills: Vec<SkillRow>,
     subagents: Vec<SubagentRow>,
@@ -68,6 +73,7 @@ impl Kpis {
     fn new(
         c: Consumption,
         breakdown: &TimeBreakdown,
+        time_note: &TimeNote,
         tools: &[RankedCalls],
         total_cost: &Cost,
     ) -> Self {
@@ -75,8 +81,12 @@ impl Kpis {
         let failures: u64 = tools.iter().map(|t| t.stats.failures).sum();
         Self {
             sessions: c.sessions,
-            turns: breakdown.turns,
-            active_time: format::duration(breakdown.total.wall()),
+            turns: c.turns,
+            active_time: if time_note.empty {
+                "–".to_owned()
+            } else {
+                format::duration(breakdown.total.wall())
+            },
             tool_calls: format::count(calls),
             failure_rate: if calls > 0 {
                 format!("{} failed", format::percent(failures as f64 / calls as f64))
@@ -127,9 +137,11 @@ pub(in crate::web) async fn handler(
 
         let tool_ranking = tools::tool_ranking(&conn, &filter)?;
         let breakdown = time::time_breakdown(&conn, &filter)?;
+        let time_note = TimeNote::new(&time::time_coverage(&conn, &filter)?);
         let kpis = Kpis::new(
             consumption::consumption(&conn, &filter)?,
             &breakdown,
+            &time_note,
             &tool_ranking,
             &cost::total_cost(&conn, &filter, prices)?.cost,
         );
@@ -157,8 +169,10 @@ pub(in crate::web) async fn handler(
             frame,
             kpis,
             time,
+            time_note,
             activities: rows::activity_rows(&activity_breakdown),
             activities_total: format::duration_ms(activity_breakdown.total_duration_ms),
+            activities_by_calls: rows::activities_by_calls(&activity_breakdown),
             tools,
             skills,
             subagents,

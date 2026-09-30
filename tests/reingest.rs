@@ -28,6 +28,7 @@ struct Reports {
     ingest_status: stats::ingest_status::IngestStatus,
     filter_options: stats::filter_options::FilterOptions,
     time_breakdown: stats::time::TimeBreakdown,
+    time_coverage: stats::time::TimeCoverage,
     turn_times: Vec<stats::time::TurnTime>,
     waiting_by_tool: Vec<stats::time::ToolWaiting>,
     skills: Vec<stats::skills::SkillStat>,
@@ -45,6 +46,7 @@ struct Reports {
     acme_consumption: stats::consumption::Consumption,
     acme_sessions: Vec<stats::sessions::SessionSummary>,
     acme_time_breakdown: stats::time::TimeBreakdown,
+    acme_time_coverage: stats::time::TimeCoverage,
     acme_skills: Vec<stats::skills::SkillStat>,
     acme_subagents: Vec<stats::subagents::SubagentTypeStat>,
     acme_total_cost: stats::cost::CostLine,
@@ -85,6 +87,7 @@ fn reports(env: &TestEnv) -> Reports {
         ingest_status: env.ingest_status(),
         filter_options: stats::filter_options::filter_options(&conn).expect("filter_options"),
         time_breakdown: env.time_breakdown(&all),
+        time_coverage: stats::time::time_coverage(&conn, &all).expect("time_coverage"),
         turn_times: env.turn_times(&all),
         waiting_by_tool: env.waiting_by_tool(&all),
         skills: env.skills(&all),
@@ -103,6 +106,7 @@ fn reports(env: &TestEnv) -> Reports {
         acme_consumption: env.consumption(&acme),
         acme_sessions: env.sessions(&acme),
         acme_time_breakdown: env.time_breakdown(&acme),
+        acme_time_coverage: stats::time::time_coverage(&conn, &acme).expect("time_coverage"),
         acme_skills: env.skills(&acme),
         acme_subagents: env.subagents(&acme),
         acme_total_cost: stats::cost::total_cost(&conn, &acme, prices).expect("total_cost"),
@@ -222,9 +226,9 @@ fn hook_data_survives_a_reingest_after_its_transcripts_are_gone() {
     let tools: Vec<_> = env
         .tool_ranking(&Filter::default())
         .into_iter()
-        .filter(|tool| tool.stats.estimated_duration_calls == 0)
+        .filter(|tool| tool.stats.timed_calls > 0)
         .collect();
-    assert_eq!(tools.len(), 3, "only Edit was transcript-only");
+    assert_eq!(tools.len(), 3, "only Edit was transcript-only (untimed)");
     std::fs::remove_dir_all(env.paths.claude_projects_dir()).unwrap();
 
     claudit::ingest::reingest(&env.paths).expect("reingest succeeds");

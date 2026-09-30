@@ -12,13 +12,20 @@
     {% if !header.version.is_empty() %}<li><span class="muted">Claude Code</span> {{ header.version }}</li>{% endif %}
   </ul>
   <ul class="facts totals">
-    <li><strong>{{ turns }}</strong> turn{% if turns != 1 %}s{% endif %}</li>
+    <li><strong>{{ turn_count }}</strong> turn{% if turn_count != 1 %}s{% endif %}</li>
     <li><strong>{{ header.active_time }}</strong> active</li>
     <li><strong>{{ header.tool_calls }}</strong> tool call{% if header.tool_calls != 1 %}s{% endif %}</li>
     <li><strong>{{ header.tokens }}</strong> tokens{% if !header.cache_read_share.is_empty() %} <span class="muted">({{ header.cache_read_share }})</span>{% endif %}</li>
     <li><strong>{{ header.cost }}</strong> <span class="muted">API-equivalent</span></li>
   </ul>
 </section>
+{% if imported %}
+<section class="card" id="imported-section">
+  <h2>Imported session <span class="pill pill-imported">imported</span></h2>
+  <p>Imported from Claude Code's transcripts before claudit was installed: tokens, cost and tool calls are available, time breakdown is not.</p>
+  <p class="muted small">A transcript's timestamps include permission prompts, idle time and background work, so claudit measures time only from its hooks.</p>
+</section>
+{% else %}
 <section class="kpis" id="session-kpis">
   {% for k in kpis %}
   <div class="kpi kpi-{{ k.kind }}">
@@ -43,8 +50,9 @@
   <script type="application/json" id="timeline-data">{{ timeline_json|safe }}</script>
   {% endif %}
 </section>
+{% endif %}
 <section class="card" id="session-activities-section">
-  <h2>Activities <span class="muted small">tool time by activity, subagents' calls included</span></h2>
+  <h2>Activities <span class="muted small">{% if activities_by_calls %}tool calls{% else %}tool time{% endif %} by activity, subagents' calls included</span></h2>
   {% if activities.is_empty() %}
   <p class="empty">No tool call recorded for this session.</p>
   {% else %}
@@ -52,8 +60,8 @@
     {% for a in activities %}
     <li>
       <span class="activity-label"><span class="swatch" style="background: var(--act-{{ a.color }})"></span> <strong>{{ a.name }}</strong></span>
-      <span class="activity-facts">{{ a.time }} · {{ a.calls }} call{% if a.calls != 1 %}s{% endif %}{% if a.failures > 0 %} · <span class="failed">{{ a.failures }} failed</span>{% endif %}</span>
-      <div class="hbar" role="img" aria-label="{{ a.share }} of tool time"><span style="width: {{ a.bar_pct }}%; background: var(--act-{{ a.color }})"></span></div>
+      <span class="activity-facts">{% if a.time != "–" %}{{ a.time }} · {% endif %}{{ a.calls }} call{% if a.calls != 1 %}s{% endif %}{% if a.failures > 0 %} · <span class="failed">{{ a.failures }} failed</span>{% endif %}</span>
+      <div class="hbar" role="img" aria-label="{% if activities_by_calls %}{{ a.calls }} calls{% else %}{{ a.share }} of tool time{% endif %}"><span style="width: {{ a.bar_pct }}%; background: var(--act-{{ a.color }})"></span></div>
     </li>
     {% endfor %}
   </ul>

@@ -27,11 +27,19 @@ use crate::web::rows::{self, ActivityRow, RunRow, ToolRow};
 struct SessionPage {
     frame: Frame,
     header: Header,
+    /// Known only from its transcripts: no KPIs nor timeline, an
+    /// explanation instead.
+    imported: bool,
+    /// Activity bars show calls (nothing in the session was hook-timed).
+    activities_by_calls: bool,
     kpis: Vec<Kpi>,
     timeline_json: String,
     /// CSS height of the timeline, from its number of lanes.
     timeline_height: usize,
+    /// Timed turns (timeline lanes).
     turns: usize,
+    /// Every turn, timed or not.
+    turn_count: u64,
     activities: Vec<ActivityRow>,
     tools: Vec<ToolRow>,
     skills: Vec<SkillUse>,
@@ -230,7 +238,11 @@ fn header(detail: &SessionDetail) -> Header {
             .unwrap_or_default(),
         cost: format::cost(&detail.cost),
         tool_calls: detail.tools.iter().map(|t| t.stats.calls).sum(),
-        active_time: format::duration(detail.time.wall()),
+        active_time: if detail.imported {
+            "–".to_owned()
+        } else {
+            format::duration(detail.time.wall())
+        },
     }
 }
 
@@ -249,18 +261,18 @@ pub(in crate::web) async fn handler(
         let path = format!("/sessions/{}", detail.session_id);
         let frame = Frame::load(&conn, &state, filters, &path, false)?;
         let turns = detail.turns.len();
-        let activities = rows::activity_rows(&activities::session_activities(
-            &conn,
-            &detail.session_id,
-            &frame.rules,
-        )?);
+        let breakdown = activities::session_activities(&conn, &detail.session_id, &frame.rules)?;
+        let activities = rows::activity_rows(&breakdown);
         Ok(Some(SessionPage {
             frame,
             header: header(&detail),
+            imported: detail.imported,
+            activities_by_calls: rows::activities_by_calls(&breakdown),
             kpis: kpis(&detail),
             timeline_json: format::script_json(&timeline(&detail.turns))?,
             timeline_height: 60 + 46 * turns.max(1),
             turns,
+            turn_count: detail.turn_count,
             activities,
             skills: detail
                 .skills

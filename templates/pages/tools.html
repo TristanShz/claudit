@@ -6,6 +6,7 @@
   {% if tools.is_empty() %}
   <p class="empty">No tool call recorded for this filter.</p>
   {% else %}
+  {% if time_note.empty %}<p class="muted small time-note">No hook-recorded session for this filter: calls and failures are counted, durations are measured only on calls timed by claudit's hooks.</p>{% else %}{% include "partials/time_note.html" %}{% endif %}
   <div class="chart" data-chart="tools-bar" data-source="tools-data"></div>
   <script type="application/json" id="tools-data">{{ tools_chart_json|safe }}</script>
   {% let label = "Tool" %}{% let rows = tools %}

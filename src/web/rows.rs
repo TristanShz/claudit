@@ -20,6 +20,8 @@ use crate::stats::tools::RankedCalls;
 pub(super) struct ToolRow {
     pub name: String,
     pub calls: u64,
+    /// Calls the hooks timed (the durations are measured on these).
+    pub timed_calls: u64,
     pub total_ms: u64,
     pub total: String,
     pub median: String,
@@ -33,13 +35,20 @@ impl From<RankedCalls> for ToolRow {
         let stats = row.stats;
         let optional = |ms: Option<u64>| ms.map_or_else(|| "–".to_owned(), format::duration_ms);
         Self {
-            total: format::duration_ms(stats.total_duration_ms),
+            // No hook timed any of its calls (imported sessions): no time,
+            // rather than a misleading 0.
+            total: if stats.timed_calls == 0 {
+                "–".to_owned()
+            } else {
+                format::duration_ms(stats.total_duration_ms)
+            },
             median: optional(stats.median_duration_ms),
             p95: optional(stats.p95_duration_ms),
             failure_rate: format::percent(stats.failure_rate()),
             failures: stats.failures,
             name: row.name,
             calls: stats.calls,
+            timed_calls: stats.timed_calls,
             total_ms: stats.total_duration_ms,
         }
     }
@@ -108,7 +117,12 @@ pub(super) fn subagent_rows(stats: Vec<SubagentTypeStat>) -> Vec<SubagentRow> {
         .into_iter()
         .map(|s| SubagentRow {
             runs: s.runs,
-            time: format::duration(s.total_duration),
+            // No run of the type was timed by the hooks (imported sessions).
+            time: if s.total_duration.is_zero() {
+                "–".to_owned()
+            } else {
+                format::duration(s.total_duration)
+            },
             tool_calls: s.tool_calls,
             model: s.model.unwrap_or_default(),
             tokens: format::count(s.tokens.total()),
@@ -132,7 +146,7 @@ pub(super) fn run_rows(runs: Vec<SubagentRun>) -> Vec<RunRow> {
     runs.into_iter()
         .map(|r| RunRow {
             started: r.started_at.map(format::local_time).unwrap_or_default(),
-            duration: r.duration.map(format::duration).unwrap_or_default(),
+            duration: r.duration.map_or_else(|| "–".to_owned(), format::duration),
             tool_calls: r.tool_calls,
             model: r.model.unwrap_or_default(),
             tokens: format::count(r.tokens.total()),
@@ -181,9 +195,13 @@ pub(super) struct SessionRow {
     pub branch: String,
     pub prompt: String,
     pub prompt_full: String,
+    /// Empty for an imported session.
     pub bar: Vec<BarPart>,
-    /// Active time: the sum of its turns' wall time.
+    /// Active time: the sum of its hook-timed turns' wall time; `–` for an
+    /// imported session.
     pub duration: String,
+    /// Known only from its transcripts (recorded before `claudit install`).
+    pub imported: bool,
     pub tool_calls: u64,
     pub cost: String,
 }
@@ -204,8 +222,17 @@ pub(super) fn session_rows(
                 branch: s.git_branch.unwrap_or_default(),
                 prompt: format::truncate(&prompt, 90),
                 prompt_full: format::truncate(&prompt, 600),
-                bar: split_bar(&s.time),
-                duration: format::duration(s.time.wall()),
+                bar: if s.imported {
+                    Vec::new()
+                } else {
+                    split_bar(&s.time)
+                },
+                duration: if s.imported {
+                    "–".to_owned()
+                } else {
+                    format::duration(s.time.wall())
+                },
+                imported: s.imported,
                 tool_calls: s.tool_calls,
                 cost: costs
                     .get(&s.session_id)
@@ -277,12 +304,17 @@ pub(super) struct ActivityRow {
     pub name: String,
     /// Palette slot: `var(--act-<color>)` (see [`activity_color`]).
     pub color: usize,
+    /// Hook-timed execution time; `–` when no hook timed its calls.
     pub time: String,
-    /// Share of the tool time, e.g. `42%`.
+    /// Share of the tool time, e.g. `42%` (`–` without time).
     pub share: String,
-    /// Bar width relative to the largest activity, e.g. `61.50`.
+    /// Bar width relative to the largest activity, e.g. `61.50`: by time,
+    /// or by calls when nothing in the report was hook-timed (see
+    /// [`activities_by_calls`]).
     pub bar_pct: String,
     pub calls: u64,
+    /// Calls the hooks timed (time, median and p95 are measured on these).
+    pub timed_calls: u64,
     pub failures: u64,
     pub failure_rate: String,
     pub median: String,
@@ -327,11 +359,26 @@ pub(super) fn activity_color(name: &str) -> usize {
         })
 }
 
+/// Whether activity bars show calls rather than time: nothing in the
+/// report was timed by the hooks (only imported sessions), so time bars
+/// would all be empty.
+pub(super) fn activities_by_calls(breakdown: &ActivityBreakdown) -> bool {
+    breakdown.total_duration_ms == 0
+}
+
 pub(super) fn activity_rows(breakdown: &ActivityBreakdown) -> Vec<ActivityRow> {
+    let by_calls = activities_by_calls(breakdown);
+    let size = |stats: &crate::stats::tools::CallStats| {
+        if by_calls {
+            stats.calls
+        } else {
+            stats.total_duration_ms
+        }
+    };
     let max = breakdown
         .activities
         .iter()
-        .map(|a| a.stats.total_duration_ms)
+        .map(|a| size(&a.stats))
         .max()
         .unwrap_or(0);
     breakdown
@@ -339,18 +386,28 @@ pub(super) fn activity_rows(breakdown: &ActivityBreakdown) -> Vec<ActivityRow> {
         .iter()
         .map(|a| {
             let stats = &a.stats;
+            let timed = stats.timed_calls > 0;
             let top = tool_rows(a.top.clone());
             ActivityRow {
                 color: activity_color(&a.activity),
                 name: a.activity.clone(),
-                time: format::duration_ms(stats.total_duration_ms),
-                share: format!("{:.0}%", breakdown.share(a) * 100.0),
+                time: if timed {
+                    format::duration_ms(stats.total_duration_ms)
+                } else {
+                    "–".to_owned()
+                },
+                share: if timed && !by_calls {
+                    format!("{:.0}%", breakdown.share(a) * 100.0)
+                } else {
+                    "–".to_owned()
+                },
                 bar_pct: if max > 0 {
-                    format!("{:.2}", stats.total_duration_ms as f64 * 100.0 / max as f64)
+                    format!("{:.2}", size(stats) as f64 * 100.0 / max as f64)
                 } else {
                     "0".to_owned()
                 },
                 calls: stats.calls,
+                timed_calls: stats.timed_calls,
                 failures: stats.failures,
                 failure_rate: format::percent(stats.failure_rate()),
                 median: stats

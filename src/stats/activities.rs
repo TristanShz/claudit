@@ -3,8 +3,8 @@
 //! Every completed tool call in the filter (subagents' calls included) is
 //! classified with an [`ActivityRules`] at query time, in Rust, so a rule
 //! change applies to the whole archive without re-ingesting. Per activity:
-//! calls, failures, execution time (`duration_ms`, as in
-//! [`super::tools`]; calls without a duration count as calls only),
+//! calls, failures, execution time (hook-timed calls only, as in
+//! [`super::tools`]: calls imported from transcripts count as calls only),
 //! nearest-rank median and p95, and the top details (normalized Bash
 //! commands, tools, MCP servers; see [`crate::activities`]).
 //!
@@ -57,7 +57,7 @@ pub struct ActivityDay {
 pub struct ActivityBreakdown {
     /// Most time first, then most calls, then name.
     pub activities: Vec<ActivityStat>,
-    /// Summed execution time of every call in the report.
+    /// Summed execution time of every hook-timed call in the report.
     pub total_duration_ms: u64,
     /// By day, then activity name.
     pub by_day: Vec<ActivityDay>,
@@ -130,7 +130,7 @@ fn breakdown_where(
         "SELECT tc.tool_name, tc.mcp_server, tc.bash_command,
                 CASE WHEN tc.tool_name = 'Bash' AND json_valid(tc.tool_input)
                      THEN json_extract(tc.tool_input, '$.command') END,
-                tc.success, tc.duration_ms,
+                tc.success, tc.hook_duration_ms,
                 date(tc.post_at_us / 1000000, 'unixepoch')
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
          WHERE tc.post_at_us IS NOT NULL AND {clause}"

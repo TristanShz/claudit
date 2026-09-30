@@ -1,9 +1,12 @@
 <div class="row-2" id="time-row">
   <section class="card" id="time-section">
-    <h2>Where the time goes{% if time.has_data %} <span class="muted">· {{ time.total }}</span>{% endif %}</h2>
-    {% if !time.has_data %}
+    <h2>Where the time goes{% if time.has_data && !time_note.empty %} <span class="muted">· {{ time.total }}</span>{% endif %}</h2>
+    {% if time_note.empty %}
+    {% include "partials/time_empty.html" %}
+    {% else if !time.has_data %}
     <p class="empty">No completed turn recorded yet for this filter.</p>
     {% else %}
+    {% include "partials/time_note.html" %}
     <div class="chart chart-split" data-chart="time-split" data-source="time-data"></div>
     <ul class="legend">
       {% for part in time.parts %}
@@ -16,9 +19,12 @@
   </section>
   <section class="card" id="waiting-section">
     <h2>Waiting on you, by tool</h2>
-    {% if time.waiting.is_empty() %}
+    {% if time_note.empty %}
+    {% include "partials/time_empty.html" %}
+    {% else if time.waiting.is_empty() %}
     <p class="empty">No tool call waited on you for this filter.</p>
     {% else %}
+    {% include "partials/time_note.html" %}
     <table class="ranking">
       <thead><tr><th>Tool</th><th class="num">Waiting</th><th class="num">Calls</th><th class="num">Prompts</th></tr></thead>
       <tbody>

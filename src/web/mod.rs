@@ -14,6 +14,7 @@ mod format;
 mod frame;
 mod pages;
 mod refresh;
+mod coverage;
 mod rows;
 
 use std::net::{Ipv4Addr, SocketAddr};

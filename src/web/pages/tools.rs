@@ -7,8 +7,9 @@ use axum::extract::{Query, State};
 use axum::response::Html;
 
 use crate::db;
-use crate::stats::tools;
+use crate::stats::{time, tools};
 use crate::web::AppState;
+use crate::web::coverage::TimeNote;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
@@ -19,6 +20,7 @@ use crate::web::rows::{self, ToolRow};
 #[template(path = "pages/tools.html")]
 struct ToolsPage {
     frame: Frame,
+    time_note: TimeNote,
     tools: Vec<ToolRow>,
     tools_chart_json: String,
     bash_commands: Vec<ToolRow>,
@@ -36,6 +38,7 @@ pub(in crate::web) async fn handler(
         let tools = rows::tool_rows(tools::tool_ranking(&conn, &filter)?);
         Ok(ToolsPage {
             frame,
+            time_note: TimeNote::new(&time::time_coverage(&conn, &filter)?),
             tools_chart_json: format::script_json(&tools)?,
             tools,
             bash_commands: rows::tool_rows(tools::bash_command_ranking(&conn, &filter)?),

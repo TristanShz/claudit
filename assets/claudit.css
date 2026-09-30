@@ -60,6 +60,8 @@ main > *, .row-2 > *, .row-3 > * { min-width: 0; }
 .pill-user { border-color: var(--series-model); }
 .pill-model { border-color: var(--series-tool); }
 .pill-both { border-style: dashed; }
+.pill-imported { border-style: dashed; font-size: 10px; }
+.time-note { margin: 0 0 10px; }
 .row-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 24px; }
 .row-3 .card { min-width: 0; }
 .card h2 { display: flex; align-items: baseline; gap: 8px; }

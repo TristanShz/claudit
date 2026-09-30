@@ -11,7 +11,9 @@ use serde::Serialize;
 
 use crate::db;
 use crate::stats::activities::{self, ActivityBreakdown};
+use crate::stats::time;
 use crate::web::AppState;
+use crate::web::coverage::TimeNote;
 use crate::web::error::WebError;
 use crate::web::filter_params::FilterParams;
 use crate::web::format;
@@ -24,14 +26,19 @@ struct ActivitiesPage {
     frame: Frame,
     activities: Vec<ActivityRow>,
     activities_total: String,
+    /// Bars and the daily chart show calls: nothing was hook-timed.
+    activities_by_calls: bool,
+    time_note: TimeNote,
     rules_version: String,
     chart_json: String,
 }
 
 /// The daily chart: one stacked series per activity (in ranking order),
-/// one value (ms) per day.
+/// one value per day: time (ms), or calls when nothing was hook-timed.
 #[derive(Serialize)]
 struct DailyChart {
+    /// `ms` or `calls`: which of each series' values the chart stacks.
+    metric: &'static str,
     days: Vec<String>,
     series: Vec<DailySeries>,
 }
@@ -77,7 +84,15 @@ fn daily_chart(breakdown: &ActivityBreakdown) -> DailyChart {
             s.calls[i] = d.calls;
         }
     }
-    DailyChart { days, series }
+    DailyChart {
+        metric: if rows::activities_by_calls(breakdown) {
+            "calls"
+        } else {
+            "ms"
+        },
+        days,
+        series,
+    }
 }
 
 pub(in crate::web) async fn handler(
@@ -92,6 +107,8 @@ pub(in crate::web) async fn handler(
         Ok(ActivitiesPage {
             activities: rows::activity_rows(&breakdown),
             activities_total: format::duration_ms(breakdown.total_duration_ms),
+            activities_by_calls: rows::activities_by_calls(&breakdown),
+            time_note: TimeNote::new(&time::time_coverage(&conn, &filter)?),
             rules_version: format!("rules {}", frame.rules.version),
             chart_json: format::script_json(&daily_chart(&breakdown))?,
             frame,

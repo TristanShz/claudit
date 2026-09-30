@@ -63,7 +63,7 @@ fn ranked(name: &str, calls: u64, failures: u64, durations: &[u64]) -> RankedCal
             total_duration_ms: durations.iter().sum(),
             median_duration_ms: sorted.get(sorted.len().div_ceil(2) - 1).copied(),
             p95_duration_ms: sorted.last().copied(),
-            estimated_duration_calls: 0,
+            timed_calls: durations.len() as u64,
         },
     }
 }
@@ -95,7 +95,7 @@ fn tool_time_is_broken_down_by_activity() {
             total_duration_ms: 28_000,
             median_duration_ms: Some(5_000),
             p95_duration_ms: Some(12_000),
-            estimated_duration_calls: 0,
+            timed_calls: 4,
         }
     );
     assert!((b.share(tests) - 28_000.0 / 38_160.0).abs() < 1e-12);

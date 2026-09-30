@@ -109,12 +109,53 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
                 "session-skills-subagents-section",
             ][..],
         ),
+        (
+            // Imported: known only from its transcripts.
+            "/sessions/2b7e4f10-3c5d-4e6f-8a9b-1c2d3e4f5a6b",
+            &[
+                "session-header",
+                "imported-section",
+                "session-activities-section",
+                "session-tools-section",
+            ][..],
+        ),
     ] {
         let (status, body) = get(&env, uri).await;
         assert_sections(uri, status, &body, ids);
     }
     let (status, _) = get(&env, "/sessions/00000000-0000-0000-0000-000000000000").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn time_sections_render_on_an_archive_of_imported_sessions_only() {
+    let env = TestEnv::new();
+    env.drop_tool_calls_fixture();
+    env.ingest();
+
+    for (uri, ids) in [
+        (
+            "/",
+            &[
+                "kpis-section",
+                "time-section",
+                "waiting-section",
+                "activities-section",
+            ][..],
+        ),
+        (
+            "/activities",
+            &["activities-section", "activities-data"][..],
+        ),
+        ("/tools", &["tools-section"][..]),
+        (
+            "/sessions/6e2d9b47-8c31-4a5f-b0d2-7f4e1a9c3b58",
+            &["session-header", "imported-section"][..],
+        ),
+    ] {
+        let (status, body) = get(&env, uri).await;
+        assert_sections(uri, status, &body, ids);
+    }
 }
 
 #[tokio::test]
