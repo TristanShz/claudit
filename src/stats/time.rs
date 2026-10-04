@@ -29,8 +29,20 @@
 //!
 //! Every interval is clipped to the turn, and each instant of the turn is
 //! assigned to exactly one component (subagent > tool > waiting > model),
-//! so the four components always sum to the wall time exactly. The same
-//! partition is exposed as positioned [`Segment`]s per turn, for timelines.
+//! so these four components always sum to the turn's wall time exactly. The
+//! same partition is exposed as positioned [`Segment`]s per turn, for
+//! timelines.
+//!
+//! A fifth component falls outside the turns: **background**, the union of
+//! the session's subagent runs' hook-timed active spans (each
+//! `SubagentStart` paired with the next `SubagentStop`, so a paused run is
+//! not counted while paused; typed runs only: Claude Code's internal agents
+//! are typeless) minus the union of its turns. A
+//! background launch returns at once and the main thread stops, idle,
+//! until a hand-back starts the next turn: without it, a session that
+//! delegates its work would show only the few seconds of each hand-back.
+//! Each background stretch lies between two turns and counts against the
+//! turn before it (its filters, its day), as [`Segment`]s after its end.
 
 use std::collections::BTreeMap;
 
@@ -56,25 +68,30 @@ pub enum SegmentKind {
     Tool,
     /// A subagent running (the main thread's Agent/Task tool executing).
     Subagent,
+    /// Subagents running between turns, the main thread idle (never
+    /// within a turn, so its priority is moot).
+    Background,
 }
 
 impl SegmentKind {
     /// Every kind, in display order (legends, charts, split bars).
-    pub const ALL: [SegmentKind; 4] = [
+    pub const ALL: [SegmentKind; 5] = [
         SegmentKind::Model,
         SegmentKind::Tool,
         SegmentKind::Waiting,
         SegmentKind::Subagent,
+        SegmentKind::Background,
     ];
 
-    /// The kind's identifier: `model`, `tool`, `waiting` or `subagent` (as
-    /// serialized; also the dashboard's CSS hook).
+    /// The kind's identifier: `model`, `tool`, `waiting`, `subagent` or
+    /// `background` (as serialized; also the dashboard's CSS hook).
     pub fn name(self) -> &'static str {
         match self {
             SegmentKind::Model => "model",
             SegmentKind::Tool => "tool",
             SegmentKind::Waiting => "waiting",
             SegmentKind::Subagent => "subagent",
+            SegmentKind::Background => "background",
         }
     }
 
@@ -85,6 +102,7 @@ impl SegmentKind {
             SegmentKind::Tool => "Tools",
             SegmentKind::Waiting => "Waiting on you",
             SegmentKind::Subagent => "Subagents",
+            SegmentKind::Background => "Background subagents",
         }
     }
 }
@@ -97,13 +115,15 @@ pub struct Segment {
     pub end: DateTime<Utc>,
 }
 
-/// A wall time split into its four components.
+/// A wall time split into its five components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeSplit {
     pub model: Duration,
     pub tool: Duration,
     pub waiting: Duration,
     pub subagent: Duration,
+    /// After the turn: subagents running, the main thread idle.
+    pub background: Duration,
 }
 
 impl Default for TimeSplit {
@@ -113,6 +133,7 @@ impl Default for TimeSplit {
             tool: Duration::zero(),
             waiting: Duration::zero(),
             subagent: Duration::zero(),
+            background: Duration::zero(),
         }
     }
 }
@@ -120,7 +141,7 @@ impl Default for TimeSplit {
 impl TimeSplit {
     /// The sum of the components.
     pub fn wall(&self) -> Duration {
-        self.model + self.tool + self.waiting + self.subagent
+        self.model + self.tool + self.waiting + self.subagent + self.background
     }
 
     /// The component of `kind`.
@@ -130,6 +151,7 @@ impl TimeSplit {
             SegmentKind::Tool => self.tool,
             SegmentKind::Waiting => self.waiting,
             SegmentKind::Subagent => self.subagent,
+            SegmentKind::Background => self.background,
         }
     }
 
@@ -139,6 +161,7 @@ impl TimeSplit {
             SegmentKind::Tool => &mut self.tool,
             SegmentKind::Waiting => &mut self.waiting,
             SegmentKind::Subagent => &mut self.subagent,
+            SegmentKind::Background => &mut self.background,
         }
     }
 }
@@ -149,6 +172,7 @@ impl std::ops::AddAssign for TimeSplit {
         self.tool += other.tool;
         self.waiting += other.waiting;
         self.subagent += other.subagent;
+        self.background += other.background;
     }
 }
 
@@ -158,11 +182,13 @@ pub struct TurnTime {
     pub session_id: String,
     pub prompt_id: String,
     pub prompt_text: Option<String>,
+    /// `UserPromptSubmit` and `Stop`: background time comes after `end`.
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
     pub split: TimeSplit,
-    /// The turn from `start` to `end`, tiled without gaps or overlaps;
-    /// adjacent segments have different kinds.
+    /// The turn from `start` to `end`, tiled without gaps or overlaps
+    /// (adjacent segments have different kinds), then its background
+    /// segments, with idle gaps between them.
     pub segments: Vec<Segment>,
 }
 
@@ -316,7 +342,7 @@ fn load_turns(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec
          WHERE session_id = ?1 AND prompt_id = ?2 AND agent_id IS NULL
            AND hook_post_at_us IS NOT NULL"
     ))?;
-    let mut turns = Vec::new();
+    let mut turns: Vec<TurnTime> = Vec::new();
     for row in rows {
         let (session_id, prompt_id, prompt_text, start_us, end_us) = row?;
         let calls = calls_stmt
@@ -340,7 +366,107 @@ fn load_turns(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec
             segments,
         });
     }
+    add_background(conn, &mut turns)?;
     Ok(turns)
+}
+
+/// Adds each session's background time (see the module docs) to the turn
+/// before each stretch, when that turn is among `turns`. The stretches are
+/// computed against all the session's timed turns, filtered or not.
+fn add_background(conn: &Connection, turns: &mut [TurnTime]) -> Result<()> {
+    let mut by_session: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, turn) in turns.iter().enumerate() {
+        by_session
+            .entry(turn.session_id.clone())
+            .or_default()
+            .push(i);
+    }
+    let mut turns_stmt = conn.prepare(&format!(
+        "SELECT t.prompt_id, {TURN_START}, {TURN_END} FROM turns t
+         WHERE t.session_id = ?1 AND {TURN_START} IS NOT NULL AND {TURN_END} IS NOT NULL
+           AND {TURN_END} >= {TURN_START}
+         ORDER BY {TURN_START}, t.prompt_id"
+    ))?;
+    let mut agents_stmt = conn.prepare(
+        "SELECT agent_id FROM subagent_runs
+         WHERE session_id = ?1 AND agent_type IS NOT NULL AND agent_type <> ''",
+    )?;
+    let mut events_stmt = conn.prepare(
+        "SELECT event, at_us FROM subagent_events WHERE agent_id = ?1 ORDER BY at_us, event",
+    )?;
+    for (session_id, indices) in by_session {
+        let agents = agents_stmt
+            .query_map([&session_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut runs: Vec<(i64, i64)> = Vec::new();
+        for agent_id in &agents {
+            for (start, stop) in super::subagents::active_spans(&mut events_stmt, agent_id)? {
+                runs.push((clock::to_micros(start), clock::to_micros(stop)));
+            }
+        }
+        if runs.is_empty() {
+            continue;
+        }
+        let all_turns = turns_stmt
+            .query_map([&session_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<Result<Vec<(String, i64, i64)>, _>>()?;
+        let busy = union(all_turns.iter().map(|(_, a, b)| (*a, *b)).collect());
+        for (a, b) in subtract(&union(runs), &busy) {
+            // The turn before the stretch: the last one started by then.
+            let Some((prompt_id, _, _)) = all_turns.iter().rev().find(|(_, s, _)| *s <= a) else {
+                continue;
+            };
+            let Some(&i) = indices.iter().find(|&&i| &turns[i].prompt_id == prompt_id) else {
+                continue;
+            };
+            let turn = &mut turns[i];
+            turn.split.background += Duration::microseconds(b - a);
+            turn.segments.push(Segment {
+                kind: SegmentKind::Background,
+                start: clock::from_micros(a),
+                end: clock::from_micros(b),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The union of `intervals`, sorted and disjoint (touching ones merged).
+fn union(mut intervals: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    intervals.sort_unstable();
+    let mut merged: Vec<(i64, i64)> = Vec::new();
+    for (a, b) in intervals {
+        match merged.last_mut() {
+            Some(last) if a <= last.1 => last.1 = last.1.max(b),
+            _ => merged.push((a, b)),
+        }
+    }
+    merged
+}
+
+/// `from` minus `cut`, both sorted and disjoint; the result is too.
+fn subtract(from: &[(i64, i64)], cut: &[(i64, i64)]) -> Vec<(i64, i64)> {
+    let mut out = Vec::new();
+    for &(mut a, b) in from {
+        for &(x, y) in cut {
+            if y <= a || x >= b {
+                continue;
+            }
+            if x > a {
+                out.push((a, x));
+            }
+            a = a.max(y);
+            if a >= b {
+                break;
+            }
+        }
+        if a < b {
+            out.push((a, b));
+        }
+    }
+    out
 }
 
 /// A main-thread tool call's intervals, in µs.

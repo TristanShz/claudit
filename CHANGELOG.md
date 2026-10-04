@@ -10,6 +10,18 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Fixed
+
+- Session time no longer leaves out subagents running in the background.
+  A session that hands its work to background subagents (the main thread
+  stops at once and only wakes up for each hand-back) used to show only
+  the few seconds of each hand-back: 43 minutes for a session that worked
+  for 8 hours. "Where the time goes", session active time and the turn
+  timeline now have a fifth component, *Background subagents*: the time
+  subagents run between turns, while the main thread is idle. Parallel
+  subagents count once, and a paused subagent does not count while it is
+  paused.
+
 ## [0.6.0] - 2026-09-30
 
 ### Added

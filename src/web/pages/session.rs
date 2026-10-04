@@ -161,7 +161,10 @@ struct TimelineTurn {
     label: String,
     prompt: String,
     started: String,
+    /// Its wall time, background subagents included.
     duration_ms: i64,
+    /// From its start to its last segment's end (the lane's extent).
+    extent_ms: i64,
     /// `[kind index, start ms, end ms]`, offsets from the turn's start.
     segments: Vec<(usize, i64, i64)>,
 }
@@ -191,7 +194,13 @@ fn timeline(turns: &[TurnTime], rows: &[TurnRow]) -> Timeline {
                         300,
                     ),
                     started: format::local_time(turn.start),
-                    duration_ms: (turn.end - turn.start).num_milliseconds(),
+                    duration_ms: turn.split.wall().num_milliseconds(),
+                    extent_ms: turn
+                        .segments
+                        .last()
+                        .map_or(turn.end, |s| s.end.max(turn.end))
+                        .signed_duration_since(turn.start)
+                        .num_milliseconds(),
                     segments: turn
                         .segments
                         .iter()
@@ -276,6 +285,15 @@ fn kpis(detail: &SessionDetail) -> Vec<Kpi> {
                     String::new()
                 },
                 share(time.subagent)
+            ),
+        },
+        Kpi {
+            kind: "background",
+            label: "Background subagents",
+            value: format::duration(time.background),
+            sub: format!(
+                "between turns, main thread idle · {}",
+                share(time.background)
             ),
         },
     ]

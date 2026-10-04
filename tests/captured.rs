@@ -70,12 +70,16 @@ fn every_captured_turn_splits_its_wall_time_exactly() {
     for turn in &turns {
         assert_eq!(turn.session_id, SESSION);
         assert!(turn.end > turn.start, "{turn:?}");
-        assert_eq!(turn.split.wall(), turn.end - turn.start, "{turn:?}");
+        assert_eq!(
+            turn.split.wall() - turn.split.background,
+            turn.end - turn.start,
+            "{turn:?}"
+        );
         let tiled: Duration = turn
             .segments
             .iter()
             .fold(Duration::zero(), |sum, s| sum + (s.end - s.start));
-        assert_eq!(tiled, turn.end - turn.start, "{turn:?}");
+        assert_eq!(tiled, turn.split.wall(), "{turn:?}");
     }
     // The first turn is bounded by its UserPromptSubmit and Stop hooks.
     let first = turns
@@ -84,6 +88,8 @@ fn every_captured_turn_splits_its_wall_time_exactly() {
         .expect("first turn");
     assert_eq!(first.end - first.start, Duration::microseconds(10_683_313));
     assert!(first.split.tool > Duration::zero(), "{first:?}");
+    // Its subagent, launched in the background, outlives the Stop hook.
+    assert_eq!(first.split.background, Duration::microseconds(189_068));
 }
 
 #[test]

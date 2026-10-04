@@ -41,10 +41,10 @@ main > *, .row-2 > *, .row-3 > * { min-width: 0; }
 .banner.info { background: color-mix(in srgb, var(--series-model) 10%, var(--surface)); border-color: var(--series-model); }
 .banner.warning { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-color: var(--accent); }
 .banner code { font-size: 12px; overflow-wrap: anywhere; }
-/* Time split series (categorical slots 1-4, fixed order). */
-:root { --series-model: #2a78d6; --series-tool: #eb6834; --series-waiting: #1baf7a; --series-subagent: #eda100; }
+/* Time split series (categorical slots 1-5, fixed order). */
+:root { --series-model: #2a78d6; --series-tool: #eb6834; --series-waiting: #1baf7a; --series-subagent: #eda100; --series-background: #8a5cd6; }
 @media (prefers-color-scheme: dark) {
-  :root { --series-model: #3987e5; --series-tool: #d95926; --series-waiting: #199e70; --series-subagent: #c98500; }
+  :root { --series-model: #3987e5; --series-tool: #d95926; --series-waiting: #199e70; --series-subagent: #c98500; --series-background: #9b72e5; }
 }
 .row-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 24px; }
 .muted { color: var(--muted); font-weight: 400; }
@@ -56,6 +56,7 @@ main > *, .row-2 > *, .row-3 > * { min-width: 0; }
 .swatch-tool { background: var(--series-tool); }
 .swatch-waiting { background: var(--series-waiting); }
 .swatch-subagent { background: var(--series-subagent); }
+.swatch-background { background: var(--series-background); }
 .pill { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); vertical-align: 1px; }
 .pill-user { border-color: var(--series-model); }
 .pill-model { border-color: var(--series-tool); }
@@ -83,6 +84,7 @@ main > *, .row-2 > *, .row-3 > * { min-width: 0; }
 .seg-tool { background: var(--series-tool); }
 .seg-waiting { background: var(--series-waiting); }
 .seg-subagent { background: var(--series-subagent); }
+.seg-background { background: var(--series-background); }
 .empty-state { padding: 32px; text-align: center; }
 .empty-state h2 { justify-content: center; font-size: 18px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }

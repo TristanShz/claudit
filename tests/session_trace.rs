@@ -83,8 +83,15 @@ fn the_main_thread_blocked_on_a_subagent_is_subagent_time_and_a_background_run_i
     assert_eq!(t2.tool, ms(50));
     assert_eq!(t2.waiting, ms(0));
     assert_eq!(t2.model, ms(18_950));
+    // Between the turns the run goes on alone 18 → 40 s, then pauses until
+    // 60 s: background time counts its active spans only.
+    assert_eq!(t1.background, ms(22_000));
+    assert_eq!(t2.background, ms(0));
     for turn in &turns {
-        assert_eq!(turn.split.wall(), turn.end - turn.start);
+        assert_eq!(
+            turn.split.wall() - turn.split.background,
+            turn.end - turn.start
+        );
     }
 }
 
