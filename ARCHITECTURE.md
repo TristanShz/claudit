@@ -76,6 +76,7 @@ flowchart LR
 | `src/shell.rs` | The one Bash command-line reader: simple commands, the leading command (`tool_calls.bash_command`), the command key (`pnpm exec vitest`). |
 | `src/activities.rs` | `ActivityRules` (from `activities/rules.toml`, plus the user's `activities.toml`): classifies a tool call into an activity and a detail. |
 | `src/stats/` | The typed stats API, the dashboard's only data source: `Filter`, `activities`, `consumption`, `cost`, `models`, `prompt` (labels of injected prompts), `sessions`, `session_detail`, `time`, `trace` (a session's turns and each turn's trace), `tools`, `commands` (Bash command keys), `skills`, `subagents`, `ingest_status`. |
+| `src/export.rs` | `claudit export` and the session page's downloads: a session as Markdown (`session_markdown`, summary or full) from the stats API, and `resolve_session` (an id or a unique prefix). |
 | `src/web/` | axum router bound to `127.0.0.1`, one module per page under `pages/`, embedded assets (`assets.rs`), query-string filters (`filter_params.rs`), display helpers (`format.rs`). |
 | `templates/` | Askama templates: `base.html`, `pages/`, `sections/` (one per dashboard section), `partials/`. |
 | `assets/` | htmx, ECharts, `claudit.js` (chart renderers), `claudit.css`; compiled into the binary. |

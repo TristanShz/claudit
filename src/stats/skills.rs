@@ -82,8 +82,34 @@ const MESSAGE_COLUMNS: FilterColumns = FilterColumns {
 /// Skills by invocations, then tokens (descending), then name. Skills with
 /// attributed tokens but no invocation in range are listed too.
 pub fn skill_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<SkillStat>> {
-    let where_ = filter.sql(&INVOCATION_COLUMNS)?;
-    let invocations = load_invocations(conn, &where_.clause, where_.params)?;
+    let invocations = filter.sql(&INVOCATION_COLUMNS)?;
+    let messages = filter.sql(&MESSAGE_COLUMNS)?;
+    ranking(
+        conn,
+        (&invocations.clause, invocations.params),
+        (&messages.clause, messages.params),
+    )
+}
+
+/// The skills of one session, ranked as [`skill_ranking`].
+pub fn session_skill_ranking(conn: &Connection, session_id: &str) -> Result<Vec<SkillStat>> {
+    let session = || vec![Value::Text(session_id.to_owned())];
+    ranking(
+        conn,
+        ("si.session_id = ?", session()),
+        ("m.session_id = ?", session()),
+    )
+}
+
+/// Skills ranked over the invocations and the API messages matching each
+/// `WHERE` fragment (over `skill_invocations si` and `api_messages m`, both
+/// joined to `sessions s`).
+fn ranking(
+    conn: &Connection,
+    invocations: (&str, Vec<Value>),
+    messages: (&str, Vec<Value>),
+) -> Result<Vec<SkillStat>> {
+    let invocations = load_invocations(conn, invocations.0, invocations.1)?;
 
     let mut stats: BTreeMap<String, SkillStat> = BTreeMap::new();
     fn entry<'a>(stats: &'a mut BTreeMap<String, SkillStat>, skill: &str) -> &'a mut SkillStat {
@@ -105,17 +131,16 @@ pub fn skill_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<SkillStat
         stat.attributed_time += time;
     }
 
-    let where_ = filter.sql(&MESSAGE_COLUMNS)?;
     let sql = format!(
         "SELECT m.skill, {}
          FROM api_messages m LEFT JOIN sessions s ON s.session_id = m.session_id
          WHERE m.skill IS NOT NULL AND m.skill <> '' AND {}
          GROUP BY m.skill",
         TokenTotals::SUMS,
-        where_.clause
+        messages.0
     );
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(where_.params), |row| {
+    let rows = stmt.query_map(params_from_iter(messages.1), |row| {
         Ok((row.get::<_, String>(0)?, TokenTotals::from_row(row, 1)?))
     })?;
     for row in rows {

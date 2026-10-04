@@ -40,6 +40,17 @@ enum Command {
     Install,
     /// Remove claudit's hooks from Claude Code's user settings.
     Uninstall,
+    /// Export one session as Markdown (to read, or to give to an AI).
+    Export {
+        /// The session id, or a unique prefix of it.
+        session: String,
+        /// Add every turn in detail: its whole prompt and every tool call.
+        #[arg(long)]
+        full: bool,
+        /// Write to this file instead of standard output.
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
+    },
     /// Replace this binary with the latest release from GitHub.
     Update {
         /// Only report whether a newer release exists.
@@ -110,6 +121,11 @@ fn run(cli: Cli) -> Result<()> {
         Command::Kill => kill(&paths),
         Command::Install => install(&paths),
         Command::Uninstall => uninstall(&paths),
+        Command::Export {
+            session,
+            full,
+            output,
+        } => export(&paths, &session, full, output.as_deref()),
         Command::Update { check } => update(check),
     }
 }
@@ -182,6 +198,48 @@ fn uninstall(paths: &Paths) -> Result<()> {
         println!("Previous settings backed up to {}.", backup.display());
     }
     println!("Your recorded data in {} was kept.", paths.home().display());
+    Ok(())
+}
+
+fn export(
+    paths: &Paths,
+    session: &str,
+    full: bool,
+    output: Option<&std::path::Path>,
+) -> Result<()> {
+    use claudit::export::{self, ExportLevel};
+    // Export what is pending too; stdout carries the export, so quietly.
+    if let Err(err) = claudit::ingest::catch_up(paths, &SystemClock) {
+        eprintln!("claudit: ingest failed, exporting the archive as it is: {err:#}");
+    }
+    let conn = claudit::db::open(paths)?;
+    let session_id = export::resolve_session(&conn, session)?;
+    let loaded = claudit::activities::ActivityRules::load(paths);
+    if let Some(problem) = &loaded.problem {
+        eprintln!("claudit: activity rules file ignored: {problem}");
+    }
+    let level = if full {
+        ExportLevel::Full
+    } else {
+        ExportLevel::Summary
+    };
+    let Some(markdown) = export::session_markdown(
+        &conn,
+        &session_id,
+        level,
+        &loaded.rules,
+        claudit::pricing::PriceTable::builtin(),
+    )?
+    else {
+        anyhow::bail!("nothing is known about session {session_id}");
+    };
+    match output {
+        Some(path) => {
+            std::fs::write(path, markdown)?;
+            eprintln!("Exported session {session_id} to {}.", path.display());
+        }
+        None => print!("{markdown}"),
+    }
     Ok(())
 }
 

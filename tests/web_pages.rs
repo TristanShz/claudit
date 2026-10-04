@@ -136,6 +136,7 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
             "/sessions/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e",
             &[
                 "session-header",
+                "session-export",
                 "session-kpis",
                 "timeline-section",
                 "turns-section",
@@ -158,6 +159,19 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
         assert_sections(uri, status, &body, ids);
     }
     let (status, _) = get(&env, "/sessions/00000000-0000-0000-0000-000000000000").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    // The session's Markdown exports download (their content is
+    // `tests/export.rs`'s).
+    for level in ["", "?level=full"] {
+        let uri = format!("/sessions/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e/export{level}");
+        let (status, _) = get(&env, &uri).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+    }
+    let (status, _) = get(
+        &env,
+        "/sessions/00000000-0000-0000-0000-000000000000/export",
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _) = get(
         &env,

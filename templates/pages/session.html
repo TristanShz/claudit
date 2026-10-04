@@ -2,7 +2,14 @@
 {% block title %}claudit · Session{% endblock %}
 {% block content %}
 <section class="card session-header" id="session-header">
-  <div class="muted small"><a href="/sessions{{ frame.query }}">Sessions</a> / <code>{{ header.session_id }}</code></div>
+  <div class="session-crumbs">
+    <div class="muted small"><a href="/sessions{{ frame.query }}">Sessions</a> / <code>{{ header.session_id }}</code></div>
+    <div class="export-links small" id="session-export">
+      <span class="muted">Export as Markdown</span>
+      <a class="button" href="/sessions/{{ header.session_id }}/export" download title="General statistics: time, skills, subagents, activities, tools, commands, turns">Summary</a>
+      <a class="button" href="/sessions/{{ header.session_id }}/export?level=full" download title="The summary, plus every turn's whole prompt and every tool call">Full</a>
+    </div>
+  </div>
   <h1>{% if header.prompt.is_empty() %}<span class="muted">(no prompt)</span>{% else %}{{ header.prompt }}{% endif %}</h1>
   <ul class="facts">
     <li title="{{ header.cwd }}"><span class="muted">Project</span> {{ header.project }}</li>

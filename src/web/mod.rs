@@ -12,7 +12,7 @@ mod commands_table;
 mod coverage;
 mod error;
 mod filter_params;
-mod format;
+pub(crate) mod format;
 mod frame;
 mod pages;
 mod refresh;
@@ -62,6 +62,7 @@ fn app(state: AppState) -> Router {
         .route("/models", get(pages::models::handler))
         .route("/sessions", get(pages::sessions::handler))
         .route("/sessions/{id}", get(pages::session::handler))
+        .route("/sessions/{id}/export", get(pages::session_export::handler))
         .route(
             "/sessions/{id}/turns/{prompt_id}",
             get(pages::turn_trace::handler),

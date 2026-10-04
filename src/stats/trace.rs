@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -139,6 +139,23 @@ pub fn session_turns(
 ) -> Result<Vec<TurnRow>> {
     let runs = subagents::session_subagent_runs(conn, session_id)?;
     turn_rows(conn, session_id, None, &runs, rules, prices)
+}
+
+/// The whole prompt text of a turn as recorded (a [`TurnRow`] has only its
+/// label), `None` when unknown.
+pub fn turn_prompt_text(
+    conn: &Connection,
+    session_id: &str,
+    prompt_id: &str,
+) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT prompt_text FROM turns WHERE session_id = ?1 AND prompt_id = ?2",
+            params![session_id, prompt_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
 }
 
 /// The trace of turn `prompt_id` of `session_id`, `None` for an unknown

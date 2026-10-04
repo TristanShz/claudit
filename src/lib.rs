@@ -8,6 +8,7 @@ pub mod activities;
 pub mod clock;
 pub mod daemon;
 pub mod db;
+pub mod export;
 pub mod hook;
 pub mod ingest;
 pub mod install;
