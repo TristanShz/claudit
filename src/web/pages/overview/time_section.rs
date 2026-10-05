@@ -47,6 +47,7 @@ struct ChartDay {
     tool: i64,
     waiting: i64,
     subagent: i64,
+    background: i64,
 }
 
 impl TimeSection {
@@ -90,6 +91,7 @@ impl TimeSection {
                     tool: d.split.tool.num_milliseconds(),
                     waiting: d.split.waiting.num_milliseconds(),
                     subagent: d.split.subagent.num_milliseconds(),
+                    background: d.split.background.num_milliseconds(),
                 })
                 .collect(),
         };

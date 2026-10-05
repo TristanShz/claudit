@@ -9,7 +9,8 @@
       yAxis: { type: "category", inverse: true, data: rows.map((r) => r.name) },
       series: [{ type: "bar", data: rows.map((r) => r.calls), itemStyle: { color: "#c2410c" } }],
     }),
-    // Where the time goes: one stacked bar (model / tools / waiting / subagents).
+    // Where the time goes: one stacked bar (model / tools / waiting / subagents /
+    // background subagents).
     "time-split": (data) => ({
       tooltip: { trigger: "item", formatter: (p) => `${p.seriesName}: ${fmtMs(p.value)}` },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
@@ -22,7 +23,7 @@
     }),
     // The same split per day, as stacked columns.
     "time-daily": (data) => {
-      const dailyStep = timeStep(Math.max(1, ...data.days.map((d) => d.model + d.tool + d.waiting + d.subagent)));
+      const dailyStep = timeStep(Math.max(1, ...data.days.map((d) => d.model + d.tool + d.waiting + d.subagent + d.background)));
       return {
         tooltip: {
           trigger: "axis", axisPointer: { type: "shadow" },
@@ -76,8 +77,8 @@
       };
     },
     // Session turn timeline: one lane per turn, its model / tool / waiting /
-    // subagent segments drawn as rectangles positioned in time from the
-    // turn's start (a custom series).
+    // subagent segments, then the background subagents after it, drawn as
+    // rectangles positioned in time from the turn's start (a custom series).
     "turn-timeline": (data, el) => {
       const narrow = el.clientWidth < 600;
       const colors = data.kinds.map((k) => seriesColor(k.kind));
@@ -86,7 +87,7 @@
       data.turns.forEach((turn, lane) =>
         turn.segments.forEach(([kind, start, end]) => items.push([lane, start, end, kind]))
       );
-      const maxMs = Math.max(1, ...data.turns.map((t) => t.duration_ms));
+      const maxMs = Math.max(1, ...data.turns.map((t) => t.extent_ms));
       const clip = (text, n) => {
         const flat = text.replace(/\s+/g, " ").trim();
         return flat.length > n ? flat.slice(0, n - 1) + "…" : flat;

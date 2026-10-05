@@ -32,6 +32,7 @@ fn split(model: i64, tool: i64, waiting: i64, subagent: i64) -> TimeSplit {
         tool: ms(tool),
         waiting: ms(waiting),
         subagent: ms(subagent),
+        background: Duration::zero(),
     }
 }
 
@@ -56,9 +57,14 @@ fn turn<'a>(turns: &'a [TurnTime], prompt_id: &str) -> &'a TurnTime {
 
 /// A hook-only turn of session `s-par` (no transcript).
 fn hook(env: &TestEnv, at_ms: i64, payload: serde_json::Value) {
+    hook_in(env, "p-par", at_ms, payload);
+}
+
+/// A hook of session `s-par` in turn `prompt_id`.
+fn hook_in(env: &TestEnv, prompt_id: &str, at_ms: i64, payload: serde_json::Value) {
     let mut payload = payload;
     payload["session_id"] = json!("s-par");
-    payload["prompt_id"] = json!("p-par");
+    payload["prompt_id"] = json!(prompt_id);
     payload["cwd"] = json!("/Users/alice/code/acme-api");
     env.at(at(at_ms)).hook(&payload);
 }
@@ -149,9 +155,14 @@ fn the_components_sum_to_wall_time_for_every_fixture_turn() {
             t.end - t.start,
             "{t:#?}"
         );
+        assert_eq!(s.wall(), t.end - t.start + s.background, "{t:#?}");
         // The positioned segments tile the turn exactly, in order.
         let mut cursor = t.start;
-        for seg in &t.segments {
+        for seg in t
+            .segments
+            .iter()
+            .filter(|s| s.kind != SegmentKind::Background)
+        {
             assert_eq!(seg.start, cursor, "{t:#?}");
             assert!(seg.end > seg.start, "{t:#?}");
             cursor = seg.end;
@@ -285,4 +296,100 @@ fn replaying_the_same_hooks_twice_changes_nothing() {
     env.ingest();
 
     assert_eq!(env.time_breakdown(&Filter::default()), before);
+}
+
+/// A subagent run of session `s-par` launched from turn `prompt_id`, from
+/// its SubagentStart to its SubagentStop.
+fn subagent_run(env: &TestEnv, prompt_id: &str, agent_id: &str, start_ms: i64, stop_ms: i64) {
+    for (event, at_ms) in [("SubagentStart", start_ms), ("SubagentStop", stop_ms)] {
+        hook_in(
+            env,
+            prompt_id,
+            at_ms,
+            json!({"hook_event_name": event, "agent_id": agent_id,
+                   "agent_type": "general-purpose"}),
+        );
+    }
+}
+
+/// A turn of session `s-par` with no tool call.
+fn bare_turn(env: &TestEnv, prompt_id: &str, submit_ms: i64, stop_ms: i64) {
+    hook_in(
+        env,
+        prompt_id,
+        submit_ms,
+        json!({"hook_event_name": "UserPromptSubmit", "prompt": "go"}),
+    );
+    hook_in(env, prompt_id, stop_ms, json!({"hook_event_name": "Stop"}));
+}
+
+#[test]
+fn background_subagents_count_between_turns_against_the_turn_before() {
+    let env = TestEnv::new();
+    // Turn 1 (0–2 s) launches two background runs and stops at once; they
+    // overlap (1.5–60 s and 10–40 s). Their hand-back starts turn 2
+    // (60.5–62 s). A Claude Code internal agent (typeless, Stop only)
+    // counts for nothing.
+    bare_turn(&env, "p-1", 0, 2_000);
+    subagent_run(&env, "p-1", "a-one", 1_500, 60_000);
+    subagent_run(&env, "p-1", "a-two", 10_000, 40_000);
+    hook_in(
+        &env,
+        "p-1",
+        30_000,
+        json!({"hook_event_name": "SubagentStop", "agent_id": "a-internal", "agent_type": ""}),
+    );
+    bare_turn(&env, "p-2", 60_500, 62_000);
+    env.ingest();
+
+    let turns = env.turn_times(&Filter::default());
+    let t1 = turn(&turns, "p-1");
+    // The union 2–60 s outside any turn, not the 88.5 s the runs add up to.
+    assert_eq!(t1.split.background, ms(58_000));
+    assert_eq!(t1.split.wall(), ms(60_000));
+    assert_eq!((t1.start, t1.end), (at(0), at(2_000)));
+    let background: Vec<(DateTime<Utc>, DateTime<Utc>)> = t1
+        .segments
+        .iter()
+        .filter(|s| s.kind == SegmentKind::Background)
+        .map(|s| (s.start, s.end))
+        .collect();
+    assert_eq!(background, [(at(2_000), at(60_000))]);
+    assert_eq!(turn(&turns, "p-2").split.background, Duration::zero());
+
+    let breakdown = env.time_breakdown(&Filter::default());
+    assert_eq!(breakdown.total.background, ms(58_000));
+    assert_eq!(breakdown.total.wall(), ms(2_000 + 58_000 + 1_500));
+}
+
+#[test]
+fn background_time_skips_idle_gaps_and_follows_its_turn_through_filters() {
+    let env = TestEnv::new();
+    let day2 = 24 * 3_600_000;
+    bare_turn(&env, "p-1", 0, 1_000);
+    // Two runs with an idle gap between them, then a turn the next day.
+    subagent_run(&env, "p-1", "a-one", 500, 10_000);
+    subagent_run(&env, "p-1", "a-two", 20_000, 30_000);
+    bare_turn(&env, "p-2", day2, day2 + 1_000);
+    env.ingest();
+
+    let turns = env.turn_times(&Filter::default());
+    let t1 = turn(&turns, "p-1");
+    assert_eq!(t1.split.background, ms(9_000 + 10_000));
+    assert_eq!(
+        t1.segments
+            .iter()
+            .filter(|s| s.kind == SegmentKind::Background)
+            .count(),
+        2
+    );
+
+    let only_day2 = Filter {
+        from: Some(at(day2)),
+        ..Filter::default()
+    };
+    assert_eq!(
+        env.time_breakdown(&only_day2).total.background,
+        Duration::zero()
+    );
 }

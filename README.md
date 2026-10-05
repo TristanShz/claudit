@@ -33,7 +33,8 @@ stop recording, run `claudit uninstall`.
 
 ## What you get
 
-- **Where the time goes**: model, tools, waiting on you, subagents.
+- **Where the time goes**: model, tools, waiting on you, subagents, and
+  subagents still running in the background between turns.
 - **Bash commands**: the most used and the slowest (`yarn test`,
   `cargo build`…), per project and per session.
 - **Activities**: time spent running tests, building, using git, editing…

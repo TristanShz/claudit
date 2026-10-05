@@ -35,6 +35,7 @@ fn split(model: i64, tool: i64, waiting: i64, subagent: i64) -> TimeSplit {
         tool: Duration::milliseconds(tool),
         waiting: Duration::milliseconds(waiting),
         subagent: Duration::milliseconds(subagent),
+        background: Duration::zero(),
     }
 }
 

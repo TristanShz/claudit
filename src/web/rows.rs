@@ -169,7 +169,7 @@ pub(super) struct BarPart {
     pub value: String,
 }
 
-/// The four components of `split`, empty when it sums to zero.
+/// The components of `split`, empty when it sums to zero.
 pub(super) fn split_bar(split: &TimeSplit) -> Vec<BarPart> {
     let wall = split.wall().num_milliseconds();
     if wall <= 0 {
