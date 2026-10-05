@@ -10,6 +10,8 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-05
+
 ### Changed
 
 - The session page's *Turn timeline* is now a *Session timeline* on the
@@ -285,7 +287,8 @@ First public release.
 - Prebuilt macOS binaries (arm64 and x86_64) published on each tag, and
   `cargo install --git https://github.com/TristanShz/claudit`.
 
-[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/TristanShz/claudit/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/TristanShz/claudit/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/TristanShz/claudit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/TristanShz/claudit/compare/v0.4.0...v0.5.0
