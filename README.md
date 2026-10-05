@@ -42,6 +42,9 @@ stop recording, run `claudit uninstall`.
   API-equivalent cost.
 - **Session detail**: every turn, and a timeline of each tool call and
   subagent.
+- **Session export**: a session as Markdown, summary or full, to give to an
+  AI and improve your skills (`claudit export <session> [--full]`, or the
+  buttons on the session page).
 
 ![Session detail page](docs/screenshots/session.png)
 

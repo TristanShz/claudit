@@ -10,6 +10,19 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- Session export as Markdown, to read or to give to an AI (to improve the
+  skills a session used, say): `claudit export <session> [--full] [-o FILE]`
+  (the session id or a unique prefix of it), and *Summary* / *Full*
+  download buttons on the session page. The summary holds the session's
+  general statistics: where the time went, skills (invocations, attributed
+  time, tokens), subagents, activities, tools, Bash commands and the list
+  of turns. The full export adds every turn in detail: its whole prompt,
+  its time split and every tool call, main thread and subagents, with its
+  input, wait, duration and error. Like the archive, an export never holds
+  Claude's responses or tool outputs.
+
 ### Fixed
 
 - Session time no longer leaves out subagents running in the background.
