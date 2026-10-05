@@ -16,6 +16,7 @@ use crate::stats::activities;
 use crate::stats::commands::{self, CommandSort};
 use crate::stats::session_detail::{self, SessionDetail};
 use crate::stats::skills::SkillTrigger;
+use crate::stats::subagents::SubagentRun;
 use crate::stats::time::{SegmentKind, TimeSplit, TurnTime};
 use crate::stats::trace::{self, TurnRow};
 use crate::web::AppState;
@@ -40,8 +41,10 @@ struct SessionPage {
     timeline_json: String,
     /// CSS height of the timeline, from its number of lanes.
     timeline_height: usize,
-    /// Timed turns (timeline lanes).
+    /// Timed turns (on the timeline's main lane).
     turns: usize,
+    /// Most subagent runs alive at once (the timeline's tracks).
+    parallel_runs: usize,
     /// Every turn, timed or not.
     turn_count: u64,
     /// Every turn, oldest first.
@@ -141,12 +144,18 @@ struct SkillUse {
     in_subagent: bool,
 }
 
-/// The timeline chart's data: one lane per turn, segments in ms from the
-/// turn's start.
+/// The session timeline's data, on the session's clock: the main thread's
+/// turns on one lane, the subagent runs packed on tracks below it (a track
+/// per run running alongside another). Times are ms from `origin_ms`.
 #[derive(Serialize)]
 struct Timeline {
     kinds: Vec<TimelineKind>,
+    /// The earliest turn or run start, in Unix ms (the axis' clock).
+    origin_ms: i64,
     turns: Vec<TimelineTurn>,
+    runs: Vec<TimelineRun>,
+    /// Subagent tracks (lanes under the main thread's).
+    tracks: usize,
 }
 
 #[derive(Serialize)]
@@ -159,20 +168,104 @@ struct TimelineKind {
 struct TimelineTurn {
     /// `#1`, `#2`, …
     label: String,
+    /// Opens the turn in the turn list.
+    prompt_id: String,
     prompt: String,
     started: String,
-    /// Its wall time, background subagents included.
+    /// UserPromptSubmit → Stop.
     duration_ms: i64,
-    /// From its start to its last segment's end (the lane's extent).
-    extent_ms: i64,
-    /// `[kind index, start ms, end ms]`, offsets from the turn's start.
+    /// `[kind index, start ms, end ms]`: the turn tiled by kind.
     segments: Vec<(usize, i64, i64)>,
 }
 
-/// `rows` gives each turn's number and label (the turn list's).
-fn timeline(turns: &[TurnTime], rows: &[TurnRow]) -> Timeline {
+#[derive(Serialize)]
+struct TimelineRun {
+    track: usize,
+    /// Its parent turn's, opened on click.
+    prompt_id: String,
+    agent_type: String,
+    description: String,
+    /// `subagent`'s kind index when the main thread waited on it,
+    /// `background`'s otherwise.
+    kind: usize,
+    duration_ms: i64,
+    tool_calls: u64,
+    /// `[start ms, end ms]`: its hook-timed active spans.
+    spans: Vec<(i64, i64)>,
+}
+
+fn kind_index(kind: SegmentKind) -> usize {
+    SegmentKind::ALL
+        .iter()
+        .position(|k| *k == kind)
+        .expect("every kind is listed")
+}
+
+/// `rows` gives each turn's number and label (the turn list's); `runs`
+/// without hook-timed spans are left out.
+fn timeline(turns: &[TurnTime], rows: &[TurnRow], runs: &[SubagentRun]) -> Timeline {
     let by_id: std::collections::HashMap<&str, &TurnRow> =
         rows.iter().map(|r| (r.prompt_id.as_str(), r)).collect();
+    let runs: Vec<&SubagentRun> = runs.iter().filter(|r| !r.active.is_empty()).collect();
+    let origin = turns
+        .iter()
+        .map(|t| t.start)
+        .chain(runs.iter().map(|r| r.active[0].0))
+        .min()
+        .unwrap_or_default();
+    let ms = |at: chrono::DateTime<chrono::Utc>| (at - origin).num_milliseconds();
+    // Main-thread waits on a subagent, telling foreground runs.
+    let waits: Vec<(i64, i64)> = turns
+        .iter()
+        .flat_map(|t| &t.segments)
+        .filter(|s| s.kind == SegmentKind::Subagent)
+        .map(|s| (ms(s.start), ms(s.end)))
+        .collect();
+    // Greedy packing by start: as many tracks as runs ever overlapped.
+    let mut ordered: Vec<(i64, i64, &SubagentRun)> = runs
+        .iter()
+        .map(|r| (ms(r.active[0].0), ms(r.active[r.active.len() - 1].1), *r))
+        .collect();
+    ordered.sort_by_key(|(start, end, _)| (*start, *end));
+    let mut track_ends: Vec<i64> = Vec::new();
+    let mut timeline_runs = Vec::with_capacity(ordered.len());
+    for (start, end, run) in ordered {
+        let track = match track_ends.iter().position(|&e| e <= start) {
+            Some(t) => t,
+            None => {
+                track_ends.push(end);
+                track_ends.len() - 1
+            }
+        };
+        track_ends[track] = end;
+        let spans: Vec<(i64, i64)> = run.active.iter().map(|(a, b)| (ms(*a), ms(*b))).collect();
+        // A background launch's Agent call overlaps its run's first
+        // instants: foreground only when waited on most of its time.
+        let active: i64 = spans.iter().map(|(a, b)| b - a).sum();
+        let waited: i64 = spans
+            .iter()
+            .flat_map(|(a, b)| {
+                waits
+                    .iter()
+                    .map(move |(wa, wb)| (*wb.min(b) - *wa.max(a)).max(0))
+            })
+            .sum();
+        let foreground = waited * 2 >= active && waited > 0;
+        timeline_runs.push(TimelineRun {
+            track,
+            prompt_id: run.prompt_id.clone().unwrap_or_default(),
+            agent_type: run.agent_type.clone(),
+            description: run.description.clone().unwrap_or_default(),
+            kind: kind_index(if foreground {
+                SegmentKind::Subagent
+            } else {
+                SegmentKind::Background
+            }),
+            duration_ms: run.duration.map_or(0, |d| d.num_milliseconds()),
+            tool_calls: run.tool_calls,
+            spans,
+        });
+    }
     Timeline {
         kinds: SegmentKind::ALL
             .into_iter()
@@ -181,6 +274,7 @@ fn timeline(turns: &[TurnTime], rows: &[TurnRow]) -> Timeline {
                 label: kind.label(),
             })
             .collect(),
+        origin_ms: origin.timestamp_millis(),
         turns: turns
             .iter()
             .enumerate()
@@ -188,36 +282,26 @@ fn timeline(turns: &[TurnTime], rows: &[TurnRow]) -> Timeline {
                 let row = by_id.get(turn.prompt_id.as_str());
                 TimelineTurn {
                     label: format!("#{}", row.map_or(i + 1, |r| r.number)),
+                    prompt_id: turn.prompt_id.clone(),
                     prompt: format::truncate(
                         row.and_then(|r| r.prompt.as_ref())
                             .map_or("", |p| p.text.as_str()),
                         300,
                     ),
-                    started: format::local_time(turn.start),
-                    duration_ms: turn.split.wall().num_milliseconds(),
-                    extent_ms: turn
-                        .segments
-                        .last()
-                        .map_or(turn.end, |s| s.end.max(turn.end))
-                        .signed_duration_since(turn.start)
-                        .num_milliseconds(),
+                    started: format::local_time_s(turn.start),
+                    duration_ms: (turn.end - turn.start).num_milliseconds(),
+                    // Background stretches are the runs' lanes.
                     segments: turn
                         .segments
                         .iter()
-                        .map(|s| {
-                            (
-                                SegmentKind::ALL
-                                    .iter()
-                                    .position(|k| *k == s.kind)
-                                    .expect("every kind is listed"),
-                                (s.start - turn.start).num_milliseconds(),
-                                (s.end - turn.start).num_milliseconds(),
-                            )
-                        })
+                        .filter(|s| s.kind != SegmentKind::Background)
+                        .map(|s| (kind_index(s.kind), ms(s.start), ms(s.end)))
                         .collect(),
                 }
             })
             .collect(),
+        tracks: track_ends.len(),
+        runs: timeline_runs,
     }
 }
 
@@ -360,6 +444,7 @@ pub(in crate::web) async fn handler(
             &frame.rules,
             PriceTable::builtin(),
         )?;
+        let timeline = timeline(&detail.turns, &turn_rows, &detail.subagents);
         let breakdown = activities::session_activities(&conn, &detail.session_id, &frame.rules)?;
         let activities = rows::activity_rows(&breakdown);
         let sort = sort.sort_or(CommandSort::Total);
@@ -379,8 +464,9 @@ pub(in crate::web) async fn handler(
             imported: detail.imported,
             activities_by_calls: rows::activities_by_calls(&breakdown),
             kpis: kpis(&detail),
-            timeline_json: format::script_json(&timeline(&detail.turns, &turn_rows))?,
-            timeline_height: 60 + 46 * turns.max(1),
+            timeline_json: format::script_json(&timeline)?,
+            timeline_height: 70 + 26 * (1 + timeline.tracks),
+            parallel_runs: timeline.tracks,
             turns,
             turn_count: detail.turn_count,
             turn_list: turn_list(&turn_rows),
