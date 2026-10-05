@@ -43,7 +43,7 @@
   {% endfor %}
 </section>
 <section class="card" id="timeline-section">
-  <h2>Turn timeline <span class="muted small">each lane starts at its prompt · {{ turns }} of {{ turn_count }} turn{% if turn_count != 1 %}s{% endif %} timed by the hooks</span></h2>
+  <h2>Session timeline <span class="muted small">on the clock · {{ turns }} of {{ turn_count }} turn{% if turn_count != 1 %}s{% endif %} timed by the hooks{% if parallel_runs > 1 %} · up to {{ parallel_runs }} subagents at once{% endif %} · gaps over 10 min folded · click a turn to open it</span></h2>
   {% if turns == 0 %}
   <p class="empty">No turn of this session was timed by the hooks (see the turn list below).</p>
   {% else %}
@@ -51,7 +51,7 @@
     <li><span class="swatch swatch-model"></span>Model</li>
     <li><span class="swatch swatch-tool"></span>Tools</li>
     <li><span class="swatch swatch-waiting"></span>Waiting on you</li>
-    <li><span class="swatch swatch-subagent"></span>Subagents</li>
+    <li><span class="swatch swatch-subagent"></span>Subagents (main thread waiting)</li>
     <li><span class="swatch swatch-background"></span>Background subagents</li>
   </ul>
   <div class="chart" data-chart="turn-timeline" data-source="timeline-data" style="height: {{ timeline_height }}px"></div>
@@ -69,7 +69,7 @@
       <span class="num">#</span><span>Started</span><span>Prompt</span><span class="num">Duration</span><span class="num">Calls</span><span class="num">Subagents</span><span class="num">Tests</span><span class="num">Tokens</span><span class="num">Cost</span>
     </div>
     {% for t in turn_list %}
-    <details class="turn" hx-get="/sessions/{{ header.session_id }}/turns/{{ t.prompt_id }}" hx-trigger="toggle once" hx-target="find .turn-body" hx-swap="innerHTML">
+    <details class="turn" id="turn-{{ t.prompt_id }}" hx-get="/sessions/{{ header.session_id }}/turns/{{ t.prompt_id }}" hx-trigger="toggle once" hx-target="find .turn-body" hx-swap="innerHTML">
       <summary class="turn-row">
         <span class="num">#{{ t.number }}</span>
         <span class="nowrap muted">{{ t.started }}</span>

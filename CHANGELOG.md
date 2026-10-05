@@ -10,6 +10,16 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Changed
+
+- The session page's *Turn timeline* is now a *Session timeline* on the
+  clock: the main thread's turns on one lane, and every subagent run's
+  active spans on tracks below it, background runs told apart from those
+  the main thread waited on, so what ran in parallel and when shows at a
+  glance. Gaps of more than 10 minutes with nothing running (a night, a
+  break) are folded to a narrow band labelled with their length. Clicking a
+  turn or a run opens its turn in the list below.
+
 ## [0.7.0] - 2026-10-05
 
 ### Added

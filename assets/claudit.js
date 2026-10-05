@@ -76,79 +76,178 @@
         })),
       };
     },
-    // Session turn timeline: one lane per turn, its model / tool / waiting /
-    // subagent segments, then the background subagents after it, drawn as
-    // rectangles positioned in time from the turn's start (a custom series).
+    // Session timeline, on the session's clock: the main thread's turns on
+    // the first lane (model / tool / waiting / subagent segments), the
+    // subagent runs' active spans packed on tracks below, so what ran in
+    // parallel and what the main thread waited on show at a glance. Gaps
+    // where nothing ran for over FOLD_MS are folded to a narrow band.
     "turn-timeline": (data, el) => {
+      const FOLD_MS = 10 * 60e3;
       const narrow = el.clientWidth < 600;
       const colors = data.kinds.map((k) => seriesColor(k.kind));
-      const lanes = data.turns.map((t) => t.label);
-      const items = [];
-      data.turns.forEach((turn, lane) =>
-        turn.segments.forEach(([kind, start, end]) => items.push([lane, start, end, kind]))
-      );
-      const maxMs = Math.max(1, ...data.turns.map((t) => t.extent_ms));
+      const muted = cssVar("--muted") || "#888";
+      const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
       const clip = (text, n) => {
         const flat = text.replace(/\s+/g, " ").trim();
         return flat.length > n ? flat.slice(0, n - 1) + "…" : flat;
       };
+      const extent = (segs) => [Math.min(...segs.map((s) => s[0])), Math.max(...segs.map((s) => s[1]))];
+      const turnSpans = data.turns.map((t) => extent(t.segments.map(([, a, b]) => [a, b])));
+
+      // Busy blocks (gaps up to FOLD_MS kept), then the folds between them.
+      const intervals = turnSpans.concat(data.runs.flatMap((r) => r.spans)).sort((a, b) => a[0] - b[0]);
+      const blocks = [];
+      intervals.forEach(([a, b]) => {
+        const last = blocks[blocks.length - 1];
+        if (last && a - last[1] <= FOLD_MS) last[1] = Math.max(last[1], b);
+        else blocks.push([a, b]);
+      });
+      const busy = Math.max(1, blocks.reduce((sum, [a, b]) => sum + b - a, 0));
+      const foldW = Math.max(busy * 0.025, 1);
+      // `[block start, compressed start]` per block.
+      const offsets = [];
+      blocks.reduce((pos, [a, b]) => { offsets.push([a, pos]); return pos + (b - a) + foldW; }, 0);
+      const x = (t) => {
+        let i = offsets.length - 1;
+        while (i > 0 && offsets[i][0] > t) i--;
+        return offsets[i][1] + Math.min(t - offsets[i][0], blocks[i][1] - blocks[i][0] + foldW);
+      };
+      const maxX = x(blocks[blocks.length - 1][1]);
+      const folds = blocks.slice(1).map(([a], i) => ({ from: blocks[i][1], to: a, at: x(blocks[i][1]) }));
+
+      // Clock ticks: a round step over the busy time, placed in each block.
+      const clock = (t) => new Date(data.origin_ms + t);
+      const pad = (n) => String(n).padStart(2, "0");
+      const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const dayOf = (d) => `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const stamp = (t) => { const d = clock(t); return `${d.getFullYear()}-${dayOf(d)} ${hm(d)}:${pad(d.getSeconds())}`; };
+      const step = Math.max(6e4, timeStep(busy, Math.max(2, Math.floor((el.clientWidth - 160) / 90))));
+      const tz = new Date(data.origin_ms).getTimezoneOffset() * 6e4;
+      const ticks = [];
+      const labels = new Map();
+      let lastDay = null;
+      blocks.forEach(([a, b]) => {
+        const local = data.origin_ms - tz;
+        for (let t = Math.ceil((local + a) / step) * step - local; t <= b; t += step) {
+          const v = x(t);
+          if (ticks.length && v - ticks[ticks.length - 1] < (maxX * 70) / Math.max(1, el.clientWidth - 160)) continue;
+          const d = clock(t);
+          labels.set(v, dayOf(d) !== lastDay ? `${hm(d)}\n${dayOf(d)}` : hm(d));
+          lastDay = dayOf(d);
+          ticks.push(v);
+        }
+      });
+
+      const lanes = ["Main thread"].concat(Array.from({ length: data.tracks }, (_, i) => (i === 0 ? "Subagents" : "")));
+      const items = [];
+      data.turns.forEach((turn, i) => {
+        // The whole turn first (kept visible however short), its segments on top.
+        const total = new Array(data.kinds.length).fill(0);
+        turn.segments.forEach(([k, a, b]) => (total[k] += b - a));
+        const main = total.indexOf(Math.max(...total));
+        items.push({ value: [0, x(turnSpans[i][0]), x(turnSpans[i][1]), main, 3], turn: i });
+        turn.segments.forEach(([k, a, b]) => items.push({ value: [0, x(a), x(b), k, 0], turn: i, seg: [k, a, b] }));
+      });
+      // A notch at each turn's start, so back-to-back turns stay apart.
+      data.turns.forEach((_, i) => items.push({ value: [0, x(turnSpans[i][0]), x(turnSpans[i][0]), -1, 1.5], turn: i }));
+      data.runs.forEach((run, i) =>
+        run.spans.forEach(([a, b]) => items.push({ value: [1 + run.track, x(a), x(b), run.kind, 2], run: i }))
+      );
+
+      const turnTip = (turn, seg) => `<strong>${esc(turn.label)}</strong> ${fmtMs(turn.duration_ms)} · ${esc(turn.started)}`
+        + (seg ? `<br>${esc(data.kinds[seg[0]].label)} ${fmtMs(seg[2] - seg[1])}` : "")
+        + (turn.prompt ? `<br><em>${esc(clip(turn.prompt, 160))}</em>` : "");
       return {
         tooltip: {
           trigger: "item",
           confine: true,
           formatter: (p) => {
-            const [lane, start, end, kind] = p.value;
-            const turn = data.turns[lane];
-            const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-            return `<div style="max-width:360px;white-space:normal">`
-              + `<strong>${esc(data.kinds[kind].label)}</strong> ${fmtMs(end - start)}`
-              + `<br><span style="opacity:.7">${fmtMs(start)} → ${fmtMs(end)} into turn ${turn.label}</span>`
-              + `<br>${turn.label} · ${fmtMs(turn.duration_ms)} · ${esc(turn.started)}`
-              + (turn.prompt ? `<br><em>${esc(clip(turn.prompt, 160))}</em>` : "")
-              + `</div>`;
+            const d = p.data;
+            let html;
+            if (d.fold) {
+              html = `<strong>${fmtMs(d.fold.to - d.fold.from)}</strong> with nothing running (folded)`
+                + `<br><span style="opacity:.7">${esc(stamp(d.fold.from))} → ${esc(stamp(d.fold.to))}</span>`;
+            } else if (d.run !== undefined) {
+              const run = data.runs[d.run];
+              html = `<strong>${esc(run.agent_type)}</strong> ${run.duration_ms ? fmtMs(run.duration_ms) + " active" : ""}`
+                + ` · ${run.tool_calls} tool call${run.tool_calls === 1 ? "" : "s"}`
+                + `<br><span style="opacity:.7">${esc(data.kinds[run.kind].label)} · ${esc(stamp(run.spans[0][0]))} → ${esc(stamp(run.spans[run.spans.length - 1][1]))}</span>`
+                + (run.description ? `<br><em>${esc(clip(run.description, 160))}</em>` : "");
+            } else {
+              html = turnTip(data.turns[d.turn], d.seg);
+            }
+            return `<div style="max-width:360px;white-space:normal">${html}</div>`;
           },
         },
-        grid: { left: 8, right: 24, top: 8, bottom: 8, containLabel: true },
+        grid: { left: 8, right: 16, top: 8, bottom: 32, containLabel: true },
         xAxis: {
-          type: "value", min: 0, max: maxMs, interval: timeStep(maxMs, Math.max(2, Math.floor((el.clientWidth - (narrow ? 120 : 220)) / 90))),
-          axisLabel: { formatter: (v) => fmtMs(v) },
-          splitLine: { lineStyle: { opacity: 0.4 } },
+          type: "value", min: 0, max: maxX,
+          axisLabel: { customValues: ticks, formatter: (v) => labels.get(v) || "", hideOverlap: true },
+          axisTick: { customValues: ticks },
+          splitLine: { show: false },
         },
         yAxis: {
           type: "category", inverse: true, data: lanes,
           axisTick: { show: false },
-          axisLabel: {
-            formatter: (label, i) => {
-              const turn = data.turns[i];
-              return `{b|${label}} {d|${fmtMs(turn.duration_ms)}}\n{p|${clip(turn.prompt || "", narrow ? 14 : 28)}}`;
-            },
-            rich: {
-              b: { fontWeight: "bold" },
-              d: { color: cssVar("--muted") || "#888" },
-              p: { color: cssVar("--muted") || "#888", fontSize: 11, lineHeight: 16 },
-            },
-          },
+          axisLabel: { color: muted, fontSize: narrow ? 10 : 12 },
         },
-        series: [{
-          type: "custom",
-          encode: { x: [1, 2], y: 0 },
-          data: items,
-          renderItem: (params, api) => {
-            const lane = api.value(0);
-            const start = api.coord([api.value(1), lane]);
-            const end = api.coord([api.value(2), lane]);
-            const height = api.size([0, 1])[1] * 0.56;
-            const shape = echarts.graphic.clipRectByRect(
-              { x: start[0], y: start[1] - height / 2, width: Math.max(end[0] - start[0], 1), height },
-              { x: params.coordSys.x, y: params.coordSys.y, width: params.coordSys.width, height: params.coordSys.height }
-            );
-            return shape && {
-              type: "rect", shape, transition: ["shape"],
-              style: { fill: colors[api.value(3)] },
-            };
+        series: [
+          {
+            type: "custom",
+            silent: false,
+            encode: { x: [1, 2], y: 0 },
+            data: folds.map((f) => ({ value: [0, f.at, f.at + foldW, 0, 0], fold: f })),
+            renderItem: (params, api) => {
+              const start = api.coord([api.value(1), 0])[0];
+              const end = api.coord([api.value(2), 0])[0];
+              const sys = params.coordSys;
+              const f = folds[params.dataIndex];
+              return {
+                type: "group",
+                children: [
+                  { type: "rect", shape: { x: start, y: sys.y, width: Math.max(end - start, 2), height: sys.height }, style: { fill: muted, opacity: 0.12 } },
+                  {
+                    type: "text", x: (start + end) / 2, y: sys.y + 4, rotation: -Math.PI / 2,
+                    style: { text: fmtMs(f.to - f.from), fill: muted, fontSize: 10, align: "left", verticalAlign: "middle" },
+                  },
+                ],
+              };
+            },
           },
-        }],
+          {
+            type: "custom",
+            encode: { x: [1, 2], y: 0 },
+            data: items,
+            renderItem: (params, api) => {
+              const lane = api.value(0);
+              const start = api.coord([api.value(1), lane]);
+              const end = api.coord([api.value(2), lane]);
+              const height = api.size([0, 1])[1] * 0.62;
+              const shape = echarts.graphic.clipRectByRect(
+                { x: start[0], y: start[1] - height / 2, width: Math.max(end[0] - start[0], api.value(4), 0.5), height },
+                { x: params.coordSys.x, y: params.coordSys.y, width: params.coordSys.width, height: params.coordSys.height }
+              );
+              return shape && {
+                type: "rect", shape, transition: ["shape"],
+                style: { fill: api.value(3) < 0 ? surface() : colors[api.value(3)] },
+                cursor: "pointer",
+              };
+            },
+          },
+        ],
       };
+    },
+  };
+
+  // What clicking a chart's item does, per chart.
+  const clickers = {
+    "turn-timeline": (data, item) => {
+      const promptId = item.turn !== undefined ? data.turns[item.turn].prompt_id
+        : item.run !== undefined ? data.runs[item.run].prompt_id : null;
+      const turn = promptId && document.getElementById(`turn-${promptId}`);
+      if (!turn) return;
+      turn.open = true;
+      turn.scrollIntoView({ behavior: "smooth", block: "start" });
     },
   };
 
@@ -183,7 +282,10 @@
       const existing = echarts.getInstanceByDom(el);
       if (existing) existing.dispose();
       const chart = echarts.init(el, dark ? "dark" : null, { renderer: "svg" });
-      chart.setOption(Object.assign({ backgroundColor: "transparent" }, render(JSON.parse(source.textContent), el)));
+      const data = JSON.parse(source.textContent);
+      chart.setOption(Object.assign({ backgroundColor: "transparent" }, render(data, el)));
+      const click = clickers[el.dataset.chart];
+      if (click) chart.on("click", (p) => click(data, p.data || {}));
     });
   }
 
