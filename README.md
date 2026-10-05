@@ -9,7 +9,7 @@ and what it all costs. Everything stays on your machine.
 macOS (Apple silicon or Intel):
 
 ```sh
-VERSION=v0.6.0
+VERSION=v0.7.0
 TARGET="$([ "$(uname -m)" = arm64 ] && echo aarch64 || echo x86_64)-apple-darwin"
 mkdir -p ~/.local/bin
 curl -fsSL "https://github.com/TristanShz/claudit/releases/download/$VERSION/claudit-$VERSION-$TARGET.tar.gz" \
