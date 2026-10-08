@@ -78,13 +78,35 @@ mod platform {
     use std::process::Command;
 
     use anyhow::{Context, Result};
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_INVALID_PARAMETER, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
+        SetHandleInformation,
+    };
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
     use windows_sys::Win32::System::Threading::{
         CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, OpenProcess, PROCESS_TERMINATE,
         TerminateProcess,
     };
 
     pub fn detach(command: &mut Command) -> &mut Command {
+        // Children inherit every inheritable handle, the streams they are
+        // given or not: a detached child would keep this process's stdout
+        // and stderr pipes open, and whoever reads them (Claude Code, for
+        // the hook) would wait for the child too. This process never hands
+        // its own streams to a child, so none needs to be inheritable.
+        for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            // SAFETY: `GetStdHandle` has no preconditions, and
+            // `SetHandleInformation` only changes a flag of a handle this
+            // process owns; a null or invalid one is skipped.
+            unsafe {
+                let handle = GetStdHandle(id);
+                if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+                    SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+                }
+            }
+        }
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
     }
 
