@@ -7,7 +7,6 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -246,10 +245,7 @@ fn backup(settings_file: &Path, bytes: &[u8], clock: &dyn Clock) -> Result<PathB
     let stamp = clock.now().format("%Y%m%dT%H%M%S%.6fZ");
     let name = format!("settings.json.claudit-backup-{stamp}");
     let path = settings_file.with_file_name(name);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(secure_fs::FILE_MODE)
+    let mut file = secure_fs::owner_only(OpenOptions::new().write(true).create_new(true))
         .open(&path)
         .with_context(|| format!("create backup {}", path.display()))?;
     file.write_all(bytes)?;
@@ -264,19 +260,18 @@ fn write_settings(path: &Path, settings: &Value) -> Result<()> {
         .parent()
         .context("settings file has no parent directory")?;
     secure_fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
-    let mode = fs::metadata(path).map_or(secure_fs::FILE_MODE, |m| m.permissions().mode() & 0o777);
+    let permissions = fs::metadata(path).ok().map(|m| m.permissions());
     let tmp = path.with_file_name(format!("settings.json.claudit-{}.tmp", std::process::id()));
     let mut text = serde_json::to_string_pretty(settings)?;
     text.push('\n');
     let written = (|| -> io::Result<()> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(secure_fs::FILE_MODE)
-            .open(&tmp)?;
+        let mut file =
+            secure_fs::owner_only(OpenOptions::new().write(true).create(true).truncate(true))
+                .open(&tmp)?;
         file.write_all(text.as_bytes())?;
-        file.set_permissions(fs::Permissions::from_mode(mode))?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions)?;
+        }
         file.sync_all()?;
         fs::rename(&tmp, path)
     })();
@@ -329,30 +324,56 @@ fn read_state(paths: &Paths) -> Result<InstallRecord> {
 fn write_state(paths: &Paths, state: &InstallRecord) -> Result<()> {
     let path = paths.install_state_file();
     secure_fs::create_dir_all(paths.home())?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(secure_fs::FILE_MODE)
-        .open(&path)
-        .with_context(|| format!("write {}", path.display()))?;
+    let mut file =
+        secure_fs::owner_only(OpenOptions::new().write(true).create(true).truncate(true))
+            .open(&path)
+            .with_context(|| format!("write {}", path.display()))?;
     serde_json::to_writer_pretty(&mut file, state)?;
     file.sync_all()?;
     Ok(())
 }
 
 /// The hook command for the claudit binary at `exe`: `<exe> hook`, with the
-/// path single-quoted for the shell when it needs to be.
+/// path quoted for the shell when it needs to be. On Windows, Claude Code
+/// runs hooks with Git Bash, or PowerShell without it: the path is written
+/// with forward slashes, which both read unquoted; a path that needs quoting
+/// (a space in it) is double-quoted, which only Git Bash reads as a command.
 pub fn hook_command(exe: &Path) -> String {
     let exe = exe.to_string_lossy();
-    let plain = exe
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "/._-+@%:,".contains(c));
-    if plain {
+    if cfg!(windows) {
+        windows_hook_command(&exe)
+    } else {
+        unix_hook_command(&exe)
+    }
+}
+
+/// [`hook_command`] on Unix: `<exe> hook`, the path single-quoted if it
+/// holds anything a shell would read.
+pub fn unix_hook_command(exe: &str) -> String {
+    if is_shell_plain(exe) {
         format!("{exe} hook")
     } else {
         format!("'{}' hook", exe.replace('\'', r"'\''"))
     }
+}
+
+/// [`hook_command`] on Windows: `<exe> hook`, the path with forward slashes,
+/// double-quoted if it holds anything a shell would read (Windows paths
+/// cannot contain `"`).
+pub fn windows_hook_command(exe: &str) -> String {
+    // `canonicalize` gives verbatim paths (`\\?\C:\…`), which no shell needs.
+    let exe = exe.strip_prefix(r"\\?\").unwrap_or(exe).replace('\\', "/");
+    if is_shell_plain(&exe) {
+        format!("{exe} hook")
+    } else {
+        format!("\"{exe}\" hook")
+    }
+}
+
+/// Whether `path` reads as one word to a shell, unquoted.
+fn is_shell_plain(path: &str) -> bool {
+    path.chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-+@%:,".contains(c))
 }
 
 /// Whether a hook `command` runs claudit's hook: its program's file name is
@@ -372,7 +393,12 @@ pub fn is_claudit_command(command: &str) -> bool {
             .split_once(char::is_whitespace)
             .unwrap_or((command, "")),
     };
-    let file_name = program.rsplit('/').next().unwrap_or(program);
+    let file_name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    let stem = file_name.len().saturating_sub(4);
+    let file_name = match file_name.get(stem..) {
+        Some(extension) if extension.eq_ignore_ascii_case(".exe") => &file_name[..stem],
+        _ => file_name,
+    };
     file_name == "claudit" && rest.trim() == "hook"
 }
 

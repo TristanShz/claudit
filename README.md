@@ -6,11 +6,16 @@ and what it all costs. Everything stays on your machine.
 
 ## Quick start
 
-macOS (Apple silicon or Intel):
+macOS or Linux (x86_64 or arm64):
 
 ```sh
 VERSION=v0.8.0
-TARGET="$([ "$(uname -m)" = arm64 ] && echo aarch64 || echo x86_64)-apple-darwin"
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) TARGET=aarch64-apple-darwin ;;
+  Darwin-x86_64) TARGET=x86_64-apple-darwin ;;
+  Linux-aarch64) TARGET=aarch64-unknown-linux-musl ;;
+  Linux-x86_64) TARGET=x86_64-unknown-linux-musl ;;
+esac
 mkdir -p ~/.local/bin
 curl -fsSL "https://github.com/TristanShz/claudit/releases/download/$VERSION/claudit-$VERSION-$TARGET.tar.gz" \
   | tar -xz --strip-components=1 -C ~/.local/bin "claudit-$VERSION-$TARGET/claudit"
@@ -19,10 +24,26 @@ claudit install   # record your Claude Code sessions
 claudit serve     # open http://127.0.0.1:8421 (Ctrl-C to stop)
 ```
 
+Windows (x86_64, in PowerShell):
+
+```powershell
+$Version = "v0.8.0"
+$Name = "claudit-$Version-x86_64-pc-windows-msvc"
+$Bin = "$env:USERPROFILE\.local\bin"
+New-Item -ItemType Directory -Force $Bin | Out-Null
+curl.exe -fsSL -o "$env:TEMP\$Name.zip" "https://github.com/TristanShz/claudit/releases/download/$Version/$Name.zip"
+tar -xf "$env:TEMP\$Name.zip" -C $env:TEMP
+Move-Item -Force "$env:TEMP\$Name\claudit.exe" $Bin
+
+claudit install
+claudit serve
+```
+
 To keep the dashboard running after you close the terminal, start it in the
 background with `claudit serve -d`, and stop it with `claudit kill`.
 
-Make sure `~/.local/bin` is on your `PATH`. With Rust:
+Make sure `~/.local/bin` (`%USERPROFILE%\\.local\\bin` on Windows) is on your
+`PATH`. With Rust:
 `cargo install --locked --git https://github.com/TristanShz/claudit`.
 
 That's it: new sessions are recorded automatically, and your existing

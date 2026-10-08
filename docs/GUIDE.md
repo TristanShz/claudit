@@ -86,9 +86,11 @@ inactivity for sessions that never ended cleanly).
   `claudit reingest` re-applies it to the whole archive, raw events included.
   Redaction is pattern based: it catches common secret shapes, not every
   possible one.
-- **Owner-only files.** Everything under `~/.claudit` is created with mode
-  `0600` (files) and `0700` (directories), including the SQLite WAL files and
-  the settings backups `claudit install` writes.
+- **Owner-only files.** On macOS and Linux, everything under `~/.claudit` is
+  created with mode `0600` (files) and `0700` (directories), including the
+  SQLite WAL files and the settings backups `claudit install` writes. On
+  Windows, files inherit the permissions of your user profile folder, which
+  other users cannot read.
 - **Localhost only.** `claudit serve` binds to `127.0.0.1`; there is no option
   to listen on another interface.
 - **No network.** claudit makes no outgoing connections, except
@@ -116,7 +118,7 @@ inactivity for sessions that never ended cleanly).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `logs/serve.log`, `install-state.json`, `ingest.lock`, `ingest.pending`, `serve.lock`, and your optional `activities.toml`. |
+| `CLAUDIT_HOME` | `~/.claudit` | Where claudit keeps its data: `claudit.db`, `spool/`, `logs/claudit.log`, `logs/serve.log`, `install-state.json`, `ingest.lock`, `ingest.pending`, `serve.lock`, `serve.pid`, and your optional `activities.toml`. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's configuration directory: `settings.json` and the `projects/` transcripts. Set it the same way you set it for Claude Code. |
 
 Hooks inherit Claude Code's environment, so a `CLAUDIT_HOME` set in the
@@ -139,14 +141,15 @@ is taken, for example), it says why and exits with an error.
   the start-up catch-up, errors) is appended to
   `~/.claudit/logs/serve.log`.
 - **One dashboard at a time.** Any running `claudit serve`, detached or
-  not, holds `~/.claudit/serve.lock`, which records its process id and
-  port. A second `claudit serve` is refused with the address of the one
+  not, holds a lock on `~/.claudit/serve.lock` and records its process id
+  and port in `~/.claudit/serve.pid`. A second `claudit serve` is refused with the address of the one
   already running. The lock is released by the system when the dashboard
   exits, even if it crashes, so it never needs cleaning up.
 - **Stopping.** `claudit kill` finds the dashboard through that lock and
   asks it to shut down (SIGTERM). It finishes the start-up catch-up if one
   is still running, then exits; after 10 seconds it is killed outright
-  (SIGKILL), which is safe for the archive. Ctrl-C still stops a dashboard
+  (SIGKILL), which is safe for the archive. Windows has no such request:
+  there, `claudit kill` stops the dashboard at once, equally safely. Ctrl-C still stops a dashboard
   running in the foreground.
 - **It does not survive a reboot or logout of your whole session**: it is
   not a login item or a launchd service. Run `claudit serve -d` again after
@@ -336,4 +339,6 @@ redacted hook payload as JSON, so it is the most stable thing to query.
 - Redaction is pattern based and cannot recognize every secret. Prompts and
   tool inputs are stored; don't use claudit if that is unacceptable for your
   work.
-- macOS is the only release target. Windows is not supported.
+- Release binaries are published for macOS (Apple silicon and Intel), Linux
+  (x86_64 and arm64) and Windows (x86_64). Other platforms can build from
+  source with `cargo install`.

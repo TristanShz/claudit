@@ -10,6 +10,22 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- Linux and Windows support. Releases now ship binaries for Linux (x86_64
+  and arm64, statically linked so they run on any distribution) and Windows
+  (x86_64), alongside macOS, and `claudit update` installs them. On Windows,
+  `claudit kill` stops the dashboard at once (there is no graceful-shutdown
+  signal), and `claudit update` keeps the replaced binary as
+  `claudit.exe.old` until the next update.
+
+### Changed
+
+- The running dashboard's process id and port moved from
+  `~/.claudit/serve.lock` to `~/.claudit/serve.pid` (Windows cannot read a
+  locked file). `claudit kill` still stops a dashboard started by an
+  earlier version.
+
 ## [0.8.0] - 2026-10-05
 
 ### Changed

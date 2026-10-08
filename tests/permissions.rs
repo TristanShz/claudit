@@ -3,7 +3,9 @@
 //!
 //! Seam under test: seam 1 (hook payloads in through `claudit::hook::run`,
 //! `claudit::ingest::run`), observing the modes of the files those entry
-//! points leave under `CLAUDIT_HOME`.
+//! points leave under `CLAUDIT_HOME`. Unix only: Windows files inherit the
+//! user profile's ACL.
+#![cfg(unix)]
 
 mod common;
 

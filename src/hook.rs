@@ -11,7 +11,6 @@
 //! `claudit ingest` in the background, and returns without waiting for it.
 
 use std::io::Read;
-use std::os::unix::process::CommandExt;
 use std::panic::{self, AssertUnwindSafe};
 use std::process::{Command, Stdio};
 
@@ -21,6 +20,7 @@ use chrono::{DateTime, Utc};
 use crate::clock::Clock;
 use crate::logfile;
 use crate::paths::Paths;
+use crate::process;
 use crate::spool::{self, SpoolRecord};
 
 /// Hook events after which new data is worth ingesting: the end of a turn
@@ -33,10 +33,11 @@ pub trait IngestSpawner {
     fn spawn_ingest(&self) -> Result<()>;
 }
 
-/// The production spawner: runs `<this executable> ingest` in a new session
-/// (so it outlives Claude Code and its terminal), with stdin, stdout and
-/// stderr on `/dev/null` (so Claude Code never waits on inherited pipes),
-/// and never waits for it: the orphan is reaped by init.
+/// The production spawner: runs `<this executable> ingest` detached (so it
+/// outlives Claude Code and its terminal, see [`process::detach`]), with
+/// stdin, stdout and stderr on the null device (so Claude Code never waits
+/// on inherited pipes), and never waits for it: the orphan is reaped by
+/// init.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DetachedIngest;
 
@@ -49,18 +50,9 @@ impl IngestSpawner for DetachedIngest {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        // SAFETY: `setsid` is async-signal-safe, as required between fork
-        // and exec; it only fails if the child already leads a process
-        // group, which a freshly forked child never does.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::setsid() == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-        command.spawn().context("spawn claudit ingest")?;
+        process::detach(&mut command)
+            .spawn()
+            .context("spawn claudit ingest")?;
         Ok(())
     }
 }

@@ -24,12 +24,16 @@ impl Paths {
         }
     }
 
-    /// Resolves paths from `CLAUDIT_HOME`, `CLAUDE_CONFIG_DIR` and `HOME`.
+    /// Resolves paths from `CLAUDIT_HOME`, `CLAUDE_CONFIG_DIR` and `HOME`
+    /// (`USERPROFILE` on Windows, where `HOME` is usually unset).
     pub fn from_env() -> Result<Self> {
         let user_home = || -> Result<PathBuf> {
-            std::env::var_os("HOME")
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from)
+            non_empty_var("HOME")
+                .or_else(|| {
+                    cfg!(windows)
+                        .then(|| non_empty_var("USERPROFILE"))
+                        .flatten()
+                })
                 .context("HOME is not set")
         };
         let home = match non_empty_var("CLAUDIT_HOME") {
@@ -69,10 +73,16 @@ impl Paths {
         self.home.join("ingest.pending")
     }
 
-    /// The dashboard lock, held by every running `claudit serve`; holds
-    /// `<pid> <port>` once the port is bound.
+    /// The dashboard lock, held by every running `claudit serve`.
     pub fn serve_lock_file(&self) -> PathBuf {
         self.home.join("serve.lock")
+    }
+
+    /// `<pid> <port>` of the dashboard holding the serve lock, once its port
+    /// is bound. Apart from the lock because Windows locks are mandatory: a
+    /// locked file cannot be read by another process.
+    pub fn serve_pid_file(&self) -> PathBuf {
+        self.home.join("serve.pid")
     }
 
     /// Directory of claudit log files.

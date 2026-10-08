@@ -2,7 +2,7 @@
 name = "claudit"
 version = "0.8.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 description = "Local analytics for Claude Code sessions: hook capture, SQLite archive, local dashboard"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/TristanShz/claudit"
@@ -30,7 +30,7 @@ include = [
 ]
 
 [lints.clippy]
-# rust-version 1.88 (askama's minimum) makes clippy suggest `is_multiple_of`
+# rust-version 1.89 makes clippy suggest `is_multiple_of`
 # in src/pricing.rs. Allowed until that line is updated.
 manual_is_multiple_of = "allow"
 
@@ -40,14 +40,24 @@ askama = "0.16.1"
 axum = "0.8.9"
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.7", features = ["derive"] }
-libc = "0.2.189"
 regex = "1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 serde_urlencoded = "0.7"
+sha2 = "0.10"
 toml = "1"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -4,7 +4,6 @@
 mod migrations;
 
 use std::fs::OpenOptions;
-use std::os::unix::fs::OpenOptionsExt;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -23,11 +22,8 @@ pub fn open(paths: &Paths) -> Result<Connection> {
     secure_fs::create_dir_all(paths.home())
         .with_context(|| format!("create {}", paths.home().display()))?;
     let path = paths.db_path();
-    // Create the file ourselves so it is 0600 from its first byte.
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(secure_fs::FILE_MODE)
+    // Create the file ourselves so it is owner-only from its first byte.
+    secure_fs::owner_only(OpenOptions::new().create(true).append(true))
         .open(&path)
         .with_context(|| format!("create database {}", path.display()))?;
 
