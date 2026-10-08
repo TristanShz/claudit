@@ -9,7 +9,7 @@ and what it all costs. Everything stays on your machine.
 macOS or Linux (x86_64 or arm64):
 
 ```sh
-VERSION=v0.8.0
+VERSION=v0.9.0
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) TARGET=aarch64-apple-darwin ;;
   Darwin-x86_64) TARGET=x86_64-apple-darwin ;;
@@ -27,7 +27,7 @@ claudit serve     # open http://127.0.0.1:8421 (Ctrl-C to stop)
 Windows (x86_64, in PowerShell):
 
 ```powershell
-$Version = "v0.8.0"
+$Version = "v0.9.0"
 $Name = "claudit-$Version-x86_64-pc-windows-msvc"
 $Bin = "$env:USERPROFILE\.local\bin"
 New-Item -ItemType Directory -Force $Bin | Out-Null

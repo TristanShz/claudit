@@ -10,6 +10,8 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-08
+
 ### Added
 
 - Linux and Windows support. Releases now ship binaries for Linux (x86_64
@@ -303,7 +305,8 @@ First public release.
 - Prebuilt macOS binaries (arm64 and x86_64) published on each tag, and
   `cargo install --git https://github.com/TristanShz/claudit`.
 
-[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/TristanShz/claudit/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/TristanShz/claudit/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/TristanShz/claudit/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/TristanShz/claudit/compare/v0.5.0...v0.6.0
