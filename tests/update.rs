@@ -2,7 +2,9 @@
 //! redirect, comparing versions, naming the archive `release.yml` publishes.
 //! The download itself is not tested (it needs the network).
 
-use claudit::update::{Version, archive_name, version_from_release_url};
+use claudit::update::{
+    Version, archive_extension, archive_name, release_target, version_from_release_url,
+};
 
 fn v(major: u64, minor: u64, patch: u64) -> Version {
     Version {
@@ -52,4 +54,21 @@ fn names_the_archive_as_the_release_workflow_does() {
         archive_name(v(0, 4, 0), "aarch64-apple-darwin"),
         "claudit-v0.4.0-aarch64-apple-darwin"
     );
+}
+
+#[test]
+fn windows_archives_are_zip_files() {
+    assert_eq!(archive_extension("x86_64-pc-windows-msvc"), "zip");
+    for target in [
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+    ] {
+        assert_eq!(archive_extension(target), "tar.gz", "{target}");
+    }
+}
+
+#[test]
+fn every_ci_platform_has_a_release() {
+    assert!(release_target().is_some());
 }

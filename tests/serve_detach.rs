@@ -9,7 +9,6 @@ mod common;
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use std::os::unix::fs::PermissionsExt;
 
 use common::TestEnv;
 
@@ -63,7 +62,13 @@ fn a_detached_dashboard_serves_until_killed() {
     );
     // The command has exited; the dashboard it started still answers.
     assert_eq!(status_line(port).as_deref(), Some("HTTP/1.1 200 OK"));
-    for file in [env.paths.serve_lock_file(), env.paths.serve_log_file()] {
+    #[cfg(unix)]
+    for file in [
+        env.paths.serve_lock_file(),
+        env.paths.serve_pid_file(),
+        env.paths.serve_log_file(),
+    ] {
+        use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "{}", file.display());
     }

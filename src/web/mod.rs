@@ -107,20 +107,21 @@ pub async fn serve(paths: Paths, port: u16) -> Result<()> {
     Ok(())
 }
 
-/// Resolves on Ctrl-C (SIGINT) or SIGTERM, the signal `claudit kill` sends.
+/// Resolves on Ctrl-C (SIGINT) or, on Unix, SIGTERM, the signal `claudit
+/// kill` sends.
 async fn shutdown_signal() {
-    use tokio::signal::unix::{SignalKind, signal};
-    match signal(SignalKind::terminate()) {
-        Ok(mut terminate) => {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut terminate) = signal(SignalKind::terminate()) {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {}
                 _ = terminate.recv() => {}
             }
-        }
-        Err(_) => {
-            let _ = tokio::signal::ctrl_c().await;
+            return;
         }
     }
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 /// Runs the locked catch-up ingest; failures also go to the error log.

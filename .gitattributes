@@ -1,0 +1,2 @@
+# Fixtures, templates and sources are LF everywhere, Windows checkouts included.
+* text=auto eol=lf

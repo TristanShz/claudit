@@ -1,11 +1,11 @@
 //! Incremental reading of append-only line files (spool files, transcripts).
 //!
-//! Progress is a byte offset per file identity (path + inode). Only complete
-//! lines are consumed: a trailing partial line stays for the next run.
+//! Progress is a byte offset per file identity (path + inode, or file index
+//! on Windows). Only complete lines are consumed: a trailing partial line
+//! stays for the next run.
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use anyhow::Result;
@@ -18,6 +18,7 @@ use crate::clock::{self, Clock, SystemClock};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileId {
     pub path: String,
+    /// The inode on Unix, the NTFS file index on Windows.
     pub inode: u64,
 }
 
@@ -25,9 +26,32 @@ impl FileId {
     pub fn of(path: &Path) -> io::Result<Self> {
         Ok(Self {
             path: path.to_string_lossy().into_owned(),
-            inode: std::fs::metadata(path)?.ino(),
+            inode: inode(path)?,
         })
     }
+}
+
+#[cfg(unix)]
+fn inode(path: &Path) -> io::Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(std::fs::metadata(path)?.ino())
+}
+
+#[cfg(windows)]
+fn inode(path: &Path) -> io::Result<u64> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let file = File::open(path)?;
+    // SAFETY: an all-zero `BY_HANDLE_FILE_INFORMATION` is valid (plain
+    // integers), and the handle stays open for the duration of the call.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow))
 }
 
 /// The complete lines found past an offset, and the offset just after them.

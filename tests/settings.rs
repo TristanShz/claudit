@@ -104,6 +104,9 @@ fn claudit_commands_are_recognised_by_program_name() {
         "/usr/local/bin/claudit hook",
         "'/opt/old place/claudit' hook",
         "\"/Users/alice/.cargo/bin/claudit\"  hook ",
+        "C:/Users/alice/.local/bin/claudit.exe hook",
+        "\"C:/Users/Alice Martin/bin/claudit.EXE\" hook",
+        r"C:\Users\alice\bin\claudit.exe hook",
     ] {
         assert!(install::is_claudit_command(command), "{command}");
     }
@@ -113,6 +116,8 @@ fn claudit_commands_are_recognised_by_program_name() {
         "not-claudit hook",
         "/usr/bin/claudit-wrapper hook",
         "echo claudit hook",
+        "C:/tools/claudit.cmd hook",
+        "exe hook",
     ] {
         assert!(!install::is_claudit_command(command), "{command}");
     }
@@ -123,15 +128,37 @@ fn the_installed_command_is_recognised_as_claudit() {
     use std::path::Path;
 
     assert_eq!(
-        install::hook_command(Path::new("/usr/local/bin/claudit")),
+        install::unix_hook_command("/usr/local/bin/claudit"),
         "/usr/local/bin/claudit hook"
     );
     assert_eq!(
-        install::hook_command(Path::new("/Applications/claudit dir/claudit")),
+        install::unix_hook_command("/Applications/claudit dir/claudit"),
         CMD
     );
     for exe in ["/usr/local/bin/claudit", "/Users/alice/my tools/claudit"] {
-        let command = install::hook_command(Path::new(exe));
+        let command = install::unix_hook_command(exe);
+        assert!(install::is_claudit_command(&command), "{command}");
+    }
+    let command = install::hook_command(Path::new("/usr/local/bin/claudit"));
+    assert!(install::is_claudit_command(&command), "{command}");
+}
+
+#[test]
+fn the_windows_command_uses_forward_slashes_and_double_quotes() {
+    assert_eq!(
+        install::windows_hook_command(r"C:\Users\alice\.local\bin\claudit.exe"),
+        "C:/Users/alice/.local/bin/claudit.exe hook"
+    );
+    // `canonicalize` returns verbatim paths.
+    assert_eq!(
+        install::windows_hook_command(r"\\?\C:\Users\Alice Martin\bin\claudit.exe"),
+        "\"C:/Users/Alice Martin/bin/claudit.exe\" hook"
+    );
+    for exe in [
+        r"C:\Users\alice\.local\bin\claudit.exe",
+        r"C:\Program Files\claudit\claudit.exe",
+    ] {
+        let command = install::windows_hook_command(exe);
         assert!(install::is_claudit_command(&command), "{command}");
     }
 }
@@ -183,8 +210,6 @@ fn install_then_uninstall_returns_the_original_settings() {
 
 #[test]
 fn install_backs_up_the_settings_file_and_uninstall_restores_it() {
-    use std::os::unix::fs::PermissionsExt;
-
     let env = common::TestEnv::new();
     let settings_file = env.paths.claude_settings_file();
     let original_text =
@@ -202,8 +227,12 @@ fn install_backs_up_the_settings_file_and_uninstall_restores_it() {
         "{name}"
     );
     assert_eq!(std::fs::read_to_string(&backup).unwrap(), original_text);
-    let mode = std::fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode, 0o600);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
     let installed: Value =
         serde_json::from_str(&std::fs::read_to_string(&settings_file).unwrap()).unwrap();
     assert_eq!(installed["cleanupPeriodDays"], 365);

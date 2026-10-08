@@ -17,7 +17,7 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-CI runs exactly these (with `--locked`) on Linux and macOS, with
+CI runs exactly these (with `--locked`) on Linux, macOS and Windows, with
 `RUSTFLAGS=-D warnings`. All four must pass before a change is merged.
 
 To try a build against a throwaway environment instead of your real
@@ -222,5 +222,6 @@ browser checks too.
 2. Bump `version` in `Cargo.toml` (and `Cargo.lock` via `cargo build`).
 3. Tag `vX.Y.Z` on `main` and push the tag. The release workflow
    (`.github/workflows/release.yml`) checks that the tag matches the crate
-   version, builds macOS arm64 and x86_64 binaries, and publishes them with
+   version, builds binaries for macOS (arm64, x86_64), Linux (x86_64,
+   arm64, static musl) and Windows (x86_64), and publishes them with
    their SHA-256 checksums as a GitHub release.

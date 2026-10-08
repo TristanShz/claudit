@@ -11,7 +11,7 @@ flowchart LR
   CC["Claude Code sessions"] -- "async command hook<br/>(12 events)" --> H["claudit hook"]
   H -- "append {received_at, payload}" --> S[("Spool<br/>spool/&lt;session_id&gt;.jsonl, 0600")]
   CC -. writes .-> T[("Transcripts<br/>~/.claude/projects, incl. subagents/")]
-  H -. "on Stop / SessionEnd:<br/>spawn detached" .-> I["claudit ingest<br/>(flock, incremental)"]
+  H -. "on Stop / SessionEnd:<br/>spawn detached" .-> I["claudit ingest<br/>(file lock, incremental)"]
   S --> I
   T -- "backfill + incremental" --> I
   I -- "drop outputs, redact,<br/>archive + project" --> DB[("claudit.db (SQLite WAL)<br/>raw_events + derived tables")]
@@ -34,8 +34,9 @@ flowchart LR
    not valid JSON is logged and still spooled, as a JSON string of the raw
    text, to `spool/unparsed.jsonl`, so nothing Claude Code sent is lost.
 2. **Ingest trigger.** On `Stop` and `SessionEnd` the hook also spawns
-   `claudit ingest` fully detached (`setsid`, stdio on `/dev/null`, never
-   waited on), so nothing heavy runs inside the hook's time budget.
+   `claudit ingest` fully detached (`src/process.rs`: `setsid` on Unix, a
+   new console-less process group on Windows; stdio on the null device;
+   never waited on), so nothing heavy runs inside the hook's time budget.
    `claudit serve` runs the same catch-up synchronously before binding.
 3. **Ingest** loads the spool and the transcripts into SQLite (see
    [Ingest pipeline](#ingest-pipeline)).
@@ -44,7 +45,7 @@ flowchart LR
    refreshes when the page is reloaded. A session page loads each turn's
    trace (`/sessions/{id}/turns/{prompt_id}`, an HTML fragment) with htmx
    only when the turn is opened. It stops on SIGINT (Ctrl-C) or SIGTERM
-   (`claudit kill`); with `--detach` it runs as a detached copy of itself
+   (`claudit kill`; on Windows, `claudit kill` terminates it); with `--detach` it runs as a detached copy of itself
    (see `src/daemon.rs`).
 
 ## Module map
@@ -54,19 +55,20 @@ flowchart LR
 | `src/main.rs` | CLI (clap). `claudit hook` bypasses argument parsing entirely so it can never print or fail. |
 | `src/lib.rs` | Library root. |
 | `src/paths.rs` | `Paths`: every location claudit touches, from `CLAUDIT_HOME` and `CLAUDE_CONFIG_DIR`. |
-| `src/secure_fs.rs` | Owner-only file helpers (dirs `0700`, files `0600`). |
+| `src/secure_fs.rs` | Owner-only file helpers (dirs `0700`, files `0600` on Unix; Windows relies on the profile folder's ACL), and `open_lock` for lock files. |
+| `src/process.rs` | The platform-specific process control: `detach` a child (`setsid` / `DETACHED_PROCESS`), `terminate` and `kill` another process (SIGTERM, SIGKILL / `TerminateProcess`). |
 | `src/clock.rs` | `Clock` trait, `SystemClock`, `ManualClock` (tests), µs conversions. |
 | `src/logfile.rs` | The error log (`logs/claudit.log`), redacted, one line per error. |
 | `src/spool.rs` | `SpoolRecord` and the append-only per-session spool files. |
 | `src/hook.rs` | `claudit hook`: `hook::run(paths, clock, spawner, stdin)`; `IngestSpawner` / `DetachedIngest`. |
-| `src/daemon.rs` | `claudit serve --detach` and `claudit kill`: the serve lock (`ServeLock`, a `flock` naming the running dashboard's pid and port), spawning a detached `claudit serve` (`setsid`, output to `logs/serve.log`) and stopping it (SIGTERM, then SIGKILL). |
-| `src/update.rs` | `claudit update`: finds the latest release from GitHub's `/releases/latest` redirect, downloads and SHA-256-checks its archive with `curl` / `shasum` / `tar`, renames the new binary over the running one. |
+| `src/daemon.rs` | `claudit serve --detach` and `claudit kill`: the serve lock (`ServeLock`, a file lock on `serve.lock`, the running dashboard's pid and port in `serve.pid`), spawning a detached `claudit serve` (output to `logs/serve.log`) and stopping it (`process::terminate`, then `process::kill`). |
+| `src/update.rs` | `claudit update`: finds the latest release from GitHub's `/releases/latest` redirect, downloads its archive with `curl`, checks its SHA-256, unpacks it with `tar` (`.tar.gz`, or `.zip` on Windows), renames the new binary over the running one (on Windows, after moving the running one to `claudit.exe.old`). |
 | `src/install.rs` | `claudit install` / `uninstall`: pure `install` / `uninstall` over the settings JSON, wrapped by `install_settings` / `uninstall_settings` (backup, atomic write, state file). |
 | `src/db/` | `db::open` (WAL, `synchronous=NORMAL`, 10 s busy timeout, owner-only files) and the migration runner. `build.rs` generates the migration list from `migrations/*.sql`. |
 | `src/redact.rs` | `sanitize_hook_payload` (drop outputs, redact) and `redact_str`, over `redaction/patterns.toml`. |
 | `src/ingest/mod.rs` | `ingest::run` (one unlocked pass), `ingest::catch_up` (locked, loops until idle, then purges), `ingest::reingest`. |
-| `src/ingest/lock.rs` | `IngestLock`: non-blocking `flock` on `ingest.lock`. |
-| `src/ingest/offsets.rs` | Byte offsets per file identity (path + inode); `read_complete_lines`. |
+| `src/ingest/lock.rs` | `IngestLock`: non-blocking file lock (`File::try_lock`) on `ingest.lock`. |
+| `src/ingest/offsets.rs` | Byte offsets per file identity (path + inode, the NTFS file index on Windows); `read_complete_lines`. |
 | `src/ingest/spool.rs` | Spool files → `raw_events` + projection, one transaction per file. |
 | `src/ingest/events/` | `RawEvent`, `archive`, and `project`: one module per hook event, plus shared `tool_call` (every write to `tool_calls`, hooks and transcripts, and the timing precedence), `skill_tool`, `agent_tool`, `subagent_runs`. |
 | `src/ingest/transcripts/` | Transcript files → `sessions`, `turns`, `api_messages`, `transcript_entries`, `subagent_runs`, `tool_calls`. `entry.rs` is the tolerant line parser. |
@@ -88,7 +90,8 @@ flowchart LR
 
 ## Files on disk
 
-`CLAUDIT_HOME` (default `~/.claudit`), all directories `0700` and files `0600`:
+`CLAUDIT_HOME` (default `~/.claudit`), all directories `0700` and files `0600`
+on Unix:
 
 | Path | Content |
 | --- | --- |
@@ -96,7 +99,8 @@ flowchart LR
 | `spool/<session_id>.jsonl` | Hook payloads not yet purged, one `{"received_at": …, "payload": …}` per line. `received_at` is RFC 3339 with nanoseconds; `payload` is the untouched hook JSON. |
 | `spool/unparsed.jsonl` | Hook stdin that was not valid JSON, same format with `payload` a JSON string of the raw text. |
 | `ingest.lock` | The single-writer ingest lock. |
-| `serve.lock` | The dashboard lock: an advisory `flock` held by every running `claudit serve`, containing `<pid> <port>` once the port is bound (emptied on shutdown). Released by the kernel when the process exits, so it never goes stale. |
+| `serve.lock` | The dashboard lock: a file lock (`flock`, `LockFileEx` on Windows) held by every running `claudit serve`. Released by the kernel when the process exits, so it never goes stale. |
+| `serve.pid` | `<pid> <port>` of the dashboard holding `serve.lock`, once its port is bound; removed on shutdown, and read only while the lock is held. Apart from the lock because a Windows lock also forbids reading the locked file. |
 | `ingest.pending` | Present when an ingest found the lock taken since the holder's last round; the holder runs again after releasing the lock. |
 | `logs/claudit.log` | `<timestamp> ERROR [<component>] <message>`, redacted. |
 | `logs/serve.log` | stdout and stderr of a dashboard started with `claudit serve --detach` (appended). |
@@ -254,7 +258,7 @@ are kept rather than merged: reports pair each start with the next stop
 
 `claudit ingest` (and the catch-up `serve` runs) is `ingest::catch_up`:
 
-1. **Lock.** Take a non-blocking `flock` on `$CLAUDIT_HOME/ingest.lock`. If
+1. **Lock.** Take a non-blocking file lock on `$CLAUDIT_HOME/ingest.lock`. If
    another ingest holds it, touch `ingest.pending` and exit at once: that
    run will pick up whatever is pending. The kernel releases the lock when
    the holder exits or crashes, so it never goes stale.
