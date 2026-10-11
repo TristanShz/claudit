@@ -110,6 +110,11 @@ impl Paths {
         self.home.join("activities.toml")
     }
 
+    /// The dashboard's team settings (the folder of the team's reports).
+    pub fn team_settings_file(&self) -> PathBuf {
+        self.home.join("team.json")
+    }
+
     /// Claude Code's configuration directory.
     pub fn claude_config_dir(&self) -> &Path {
         &self.claude_config_dir

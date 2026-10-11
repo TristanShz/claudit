@@ -166,6 +166,44 @@ that is not valid JSON is logged and archived as raw text (redacted) instead
 of being dropped. Transcript lines of an unknown shape are skipped, counted
 and logged; the dashboard shows a banner when there are any.
 
+## Comparing a team
+
+The **Team** page lines up the period reports of several people, to see
+where their use of Claude Code differs.
+
+1. Agree on a folder every member can write to (a synced drive, a git
+   repository) and on a period (say, last month).
+2. Each member writes their report into it: `claudit report --from
+   2026-09-01 --to 2026-09-30 -o <folder>`, or **Export report** in the
+   dashboard and a copy into the folder. To keep it current, schedule the
+   command (with `cron`, say).
+3. On the **Team** page, enter the folder and save it (it is remembered in
+   `~/.claudit/team.json`), then pick the period.
+
+The page reads every `.json` file of the folder (not its subfolders) and
+lists those that are not reports. It compares the reports of one exact
+period at a time; a member's latest report of that period counts, so
+reports of different periods never mix. For each member:
+
+- **Where the time goes**: the split of their timed turns, as a bar.
+- **How each member works**: rates rather than totals, so heavy and light
+  users still compare: turns per active day, time per turn, shares of time
+  (model, tools, waiting on permission prompts, subagents), tool calls per
+  turn and failure rate, skill invocations and subagent runs per 100 turns,
+  tokens per turn, cache reads, cost per turn and per active day.
+- **Skills, subagents, tools, activities, models**: who uses what, and how
+  much, most widely used first.
+
+Each figure is set against the **team median**: a value at least 1.5 times
+the median is highlighted in orange, one at most 1/1.5 of it in blue, and an
+item only some members use stands out against the others' zero. These are
+where practices differ: a skill one member relies on and the others don't
+know, a member who spends a third of their time answering permission
+prompts. Time figures only cover the sessions each member's hooks recorded
+(see [Imported sessions](#imported-sessions-vs-sessions-recorded-with-hooks)).
+A report filtered by project, branch or model is flagged, as it is not
+comparable with unfiltered ones.
+
 ## Activities
 
 Every tool call is assigned an **activity** by an ordered list of rules: the

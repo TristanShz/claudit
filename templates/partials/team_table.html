@@ -1,0 +1,14 @@
+<div class="table-scroll">
+<table class="ranking team-compare">
+  <thead><tr><th></th>{% for m in members %}<th class="num">{{ m.name }}</th>{% endfor %}<th class="num median">Team median</th></tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td class="name"{% if !r.help.is_empty() %} title="{{ r.help }}"{% endif %}>{{ r.label }}</td>
+      {% for cell in r.cells %}<td class="num{% if !cell.class.is_empty() %} dev {{ cell.class }}{% endif %}"{% if !cell.title.is_empty() %} title="{{ cell.title }}"{% endif %}>{{ cell.text }}</td>{% endfor %}
+      <td class="num median">{{ r.median }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>

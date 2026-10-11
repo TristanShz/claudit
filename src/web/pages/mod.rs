@@ -10,5 +10,6 @@ pub(super) mod session_export;
 pub(super) mod sessions;
 pub(super) mod skills;
 pub(super) mod subagents;
+pub(super) mod team;
 pub(super) mod tools;
 pub(super) mod turn_trace;

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}claudit · Team{% endblock %}
+{% block content %}
+<section class="card" id="team-folder">
+  <h2>Team</h2>
+  <p class="muted small">Compare your team's usage from the period reports each member shares in one folder (a synced drive, a repository): with <code>claudit report -o &lt;folder&gt;</code>, or <strong>Export report</strong> under the filter bar. Reports hold aggregates only, plus prompts if a member chose to include them.</p>
+  <form class="filters" method="post" action="/team/folder">
+    <label>Reports folder <input type="text" name="dir" value="{{ folder }}" placeholder="/path/to/team-reports" size="48"></label>
+    <button type="submit">Save</button>
+  </form>
+  {% if let Some(error) = error %}<p class="banner warning">{{ error }}</p>{% endif %}
+  {% if !skipped.is_empty() %}
+  <details class="small">
+    <summary class="muted">{{ skipped.len() }} file{% if skipped.len() != 1 %}s{% endif %} skipped</summary>
+    <ul>{% for s in skipped %}<li><code>{{ s.file }}</code>: {{ s.reason }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% if !choices.is_empty() %}
+  <form class="filters" method="get" action="/team">
+    <label>Period
+      <select name="period">
+        {% for c in choices %}<option value="{{ c.value }}"{% if c.selected %} selected{% endif %}>{{ c.label }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Show</button>
+  </form>
+  {% else if !folder.is_empty() && error.is_none() %}
+  <p class="empty">No report in this folder yet.</p>
+  {% endif %}
+</section>
+{% if let Some(c) = comparison %}
+<section class="card" id="team-members">
+  <h2>Members <span class="muted">· {{ c.members.len() }}</span></h2>
+  {% if c.members.len() < 2 %}<p class="muted small">Only one member reported this period: the team median is theirs. Comparing needs at least two reports of the same period.</p>{% endif %}
+  <div class="table-scroll">
+  <table class="ranking team-time">
+    <thead><tr><th>Member</th><th>Where the time goes</th><th class="num">Timed</th><th class="num">Sessions</th><th>Report</th></tr></thead>
+    <tbody>
+      {% for m in c.members %}
+      <tr>
+        <td class="name">{{ m.name }}{% if !m.filter.is_empty() %} <span class="failed small" title="This report is filtered: it is not comparable with unfiltered ones">({{ m.filter }})</span>{% endif %}</td>
+        <td class="bar-cell">{% if m.time.is_empty() %}<span class="muted small">no timed turn</span>{% else %}<div class="stack-bar" role="img" aria-label="{% for p in m.time %}{{ p.label }} {{ p.share }}{% if !loop.last %}, {% endif %}{% endfor %}">{% for p in m.time %}<span class="swatch-{{ p.kind }}" style="width: {{ "{:.2}"|format(p.pct) }}%" title="{{ p.label }} {{ p.share }}"></span>{% endfor %}</div>{% endif %}</td>
+        <td class="num">{% if m.time_total.is_empty() %}–{% else %}{{ m.time_total }}{% endif %}</td>
+        <td class="num small">{{ m.sessions }}</td>
+        <td class="muted small">claudit {{ m.claudit_version }} · {{ m.generated }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <ul class="legend">
+    <li><span class="swatch swatch-model"></span>Model</li><li><span class="swatch swatch-tool"></span>Tools</li><li><span class="swatch swatch-waiting"></span>Waiting on you</li><li><span class="swatch swatch-subagent"></span>Subagents</li><li><span class="swatch swatch-background"></span>Background subagents</li>
+  </ul>
+</section>
+<section class="card" id="team-metrics">
+  <h2>How each member works</h2>
+  <p class="muted small">Rates rather than totals, so members who use Claude Code more or less still compare. <span class="dev above">Highlighted</span> values are at least {{ "{:.1}"|format(crate::team::DEVIATION) }}× the team median, <span class="dev below">these</span> at most 1/{{ "{:.1}"|format(crate::team::DEVIATION) }}: where practices differ. Time is measured only on the sessions the hooks recorded.</p>
+  {% let rows = c.metrics %}{% let members = c.members %}
+  {% include "partials/team_table.html" %}
+</section>
+{% for t in c.tables %}
+<section class="card" id="{{ t.id }}">
+  <h2>{{ t.title }}{% if t.more > 0 %} <span class="muted">· top {{ t.rows.len() }} of {{ t.rows.len() + t.more }}</span>{% endif %}</h2>
+  <p class="muted small">{{ t.note }} Most widely used first; – means not used.</p>
+  {% if t.rows.is_empty() %}
+  <p class="empty">Nobody used any in this period.</p>
+  {% else %}
+  {% let rows = t.rows %}{% let members = c.members %}
+  {% include "partials/team_table.html" %}
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

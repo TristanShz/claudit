@@ -245,3 +245,60 @@ async fn an_invalid_activity_rules_file_shows_a_banner() {
         assert_sections(uri, status, &body, &["activity-rules-warning"]);
     }
 }
+
+#[tokio::test]
+async fn the_team_page_renders_without_and_with_a_folder() {
+    let env = TestEnv::new();
+    env.populate_trace_session();
+    env.ingest();
+
+    let (status, body) = get(&env, "/team").await;
+    assert_sections("/team", status, &body, &["team-folder"]);
+    assert!(!body.contains("id=\"team-metrics\""));
+
+    // Two members' reports in the folder, saved through the form.
+    let folder = env.paths.home().join("team");
+    std::fs::create_dir_all(&folder).unwrap();
+    for author in ["Alice", "Bob"] {
+        let out = env.run_bin(
+            &[
+                "report",
+                "--from",
+                "2026-03-01",
+                "--to",
+                "2026-03-31",
+                "--author",
+                author,
+                "-o",
+                folder.to_str().unwrap(),
+            ],
+            b"",
+        );
+        assert!(out.status.success());
+    }
+    let form = serde_urlencoded::to_string([("dir", folder.to_str().unwrap())]).unwrap();
+    let response = claudit::web::router(env.paths.clone())
+        .oneshot(
+            Request::post("/team/folder")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(form))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.status().is_redirection());
+
+    for uri in [
+        "/team",
+        "/team?period=2026-03-01_2026-03-31",
+        "/team?period=bogus",
+    ] {
+        let (status, body) = get(&env, uri).await;
+        assert_sections(
+            uri,
+            status,
+            &body,
+            &["team-folder", "team-members", "team-metrics", "team-tools"],
+        );
+    }
+}
