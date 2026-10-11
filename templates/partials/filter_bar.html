@@ -24,3 +24,14 @@
   <button type="submit">Apply</button>
   {% if !frame.query.is_empty() %}<a class="muted" href="{{ frame.filter_action }}">Clear</a>{% endif %}
 </form>
+{# The period report (`claudit report`) over the filters applied above. #}
+<details class="report-export" id="report-export">
+  <summary>Export report</summary>
+  <form class="filters" method="get" action="/report">
+    {% for (name, value) in frame.filters.pairs() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <span class="muted">Your usage {% if frame.filters.from.is_empty() %}over the last 30 days{% if !frame.filters.to.is_empty() %} to {{ frame.filters.to }}{% endif %}{% else %}from {{ frame.filters.from }} to {% if frame.filters.to.is_empty() %}today{% else %}{{ frame.filters.to }}{% endif %}{% endif %}, with the filters applied, as JSON to share with your team.</span>
+    <label>Author <input type="text" name="author" placeholder="git user.name"></label>
+    <label title="Every prompt you typed in the period, secrets redacted: review the file before sharing it"><input type="checkbox" name="prompts" value="on"> Include my prompts</label>
+    <button type="submit">Download</button>
+  </form>
+</details>

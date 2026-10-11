@@ -12,7 +12,13 @@
 
 use std::collections::HashMap;
 
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use rusqlite::{Connection, params_from_iter};
 use serde::Serialize;
+
+use super::Filter;
+use crate::clock;
 
 /// Where a turn's prompt came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -64,6 +70,62 @@ pub(super) const INJECTED_SQL: &str =
     OR ltrim(t.prompt_text, ' ' || char(9) || char(10) || char(13))
        GLOB '<scheduled-task*'
     THEN 1 ELSE 0 END)";
+
+/// A prompt the user typed (a slash or `!` command included).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedPrompt {
+    pub session_id: String,
+    /// The session's working directory.
+    pub cwd: Option<String>,
+    /// When the turn started (`UserPromptSubmit`, else its first transcript
+    /// entry).
+    pub at: DateTime<Utc>,
+    /// As [`label`] gives it: typed text as is, a command as `/name args`.
+    pub text: String,
+}
+
+/// The prompts the user typed in the filtered turns, oldest first; the
+/// prompts Claude Code injected are left out. Turns are filtered as in
+/// [`super::consumption::consumption`].
+pub fn typed_prompts(conn: &Connection, filter: &Filter) -> Result<Vec<TypedPrompt>> {
+    let where_ = filter.sql(&super::consumption::TURN_COLUMNS)?;
+    let sql = format!(
+        "SELECT t.session_id, s.cwd, COALESCE(t.submit_at_us, t.start_at_us) AS at, t.prompt_text
+         FROM turns t
+         LEFT JOIN sessions s ON s.session_id = t.session_id
+         LEFT JOIN api_messages m
+                ON m.session_id = t.session_id AND m.prompt_id = t.prompt_id
+         WHERE t.prompt_text IS NOT NULL AND at IS NOT NULL
+           AND NOT {INJECTED_SQL} AND {}
+         GROUP BY t.session_id, t.prompt_id
+         ORDER BY at, t.session_id, t.prompt_id",
+        where_.clause
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(where_.params), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    let mut prompts = Vec::new();
+    for row in rows {
+        let (session_id, cwd, at, raw) = row?;
+        let label = label(&raw, &HashMap::new());
+        if label.kind.injected() {
+            continue;
+        }
+        prompts.push(TypedPrompt {
+            session_id,
+            cwd,
+            at: clock::from_micros(at),
+            text: label.text,
+        });
+    }
+    Ok(prompts)
+}
 
 /// The label of prompt `raw`. `subagents` maps agent ids to a name (the
 /// description of the Agent call, or the agent type) for subagent

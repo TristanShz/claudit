@@ -192,3 +192,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 /* Half-width overview block: the colour chip (and tooltip) names the activity. */
 #time-row .ranking.commands .activity-name { display: none; }
 .hidden-note a { color: var(--accent); }
+.report-export { margin-top: 8px; }
+.report-export > summary { cursor: pointer; color: var(--muted); width: max-content; }
+.report-export > summary:hover { color: var(--text); }
+.report-export > form { margin-top: 8px; }

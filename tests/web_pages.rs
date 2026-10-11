@@ -173,6 +173,18 @@ async fn every_page_renders_its_sections_on_the_fixture_archive() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    // The period report downloads (its content is `tests/report.rs`'s).
+    let (status, body) = get(&env, "/").await;
+    assert_sections("/", status, &body, &["report-export"]);
+    for uri in [
+        "/report?author=Alice",
+        "/report?from=2026-03-01&to=2026-03-31&author=Alice&prompts=on",
+    ] {
+        let (status, _) = get(&env, uri).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+    }
+    let (status, _) = get(&env, "/report?from=March&author=Alice").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = get(
         &env,
         "/sessions/c4e8a2f0-5b3d-4e7a-9f1c-2d6b8e0a4c7e/turns/no-such-turn",

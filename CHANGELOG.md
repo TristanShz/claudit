@@ -10,6 +10,21 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- Period report, to share your usage with your team and compare:
+  `claudit report [--from DAY] [--to DAY] [--days N] [-o FILE|DIR]` writes
+  your usage over a period (the last 30 days by default) as versioned JSON:
+  totals, where the time went, projects, models, tools, MCP servers, Bash
+  commands, activities, skills, subagents and a row per day. It holds
+  aggregates only; `--include-prompts` adds the prompts you typed. Projects
+  are named by their git `origin` remote (`github.com/acme/api`), else by
+  their directory's name, never by a local path, so reports from different
+  machines line up. With `-o` naming a directory (a shared folder, say), the
+  file is named after the author and the period. The dashboard downloads
+  the same report over the filters applied (**Export report**, below the
+  filter bar).
+
 ## [0.9.0] - 2026-10-08
 
 ### Added
