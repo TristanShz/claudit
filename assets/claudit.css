@@ -196,3 +196,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .report-export > summary { cursor: pointer; color: var(--muted); width: max-content; }
 .report-export > summary:hover { color: var(--text); }
 .report-export > form { margin-top: 8px; }
+/* Team page: time split per member, values far from the team median. */
+:root { --above: #c2410c; --above-bg: #fff1e8; --below: #1d4ed8; --below-bg: #e8efff; }
+@media (prefers-color-scheme: dark) { :root { --above: #fdba74; --above-bg: #3a2414; --below: #93b4fd; --below-bg: #17223d; } }
+.stack-bar { display: flex; width: 100%; min-width: 160px; height: 12px; border-radius: 3px; overflow: hidden; background: var(--border); }
+.stack-bar > span { display: block; height: 100%; }
+.team-time td.bar-cell { width: 40%; }
+.team-compare td.median, .team-compare th.median { color: var(--muted); border-left: 1px solid var(--border); }
+.dev.above { color: var(--above); background: var(--above-bg); font-weight: 600; }
+.dev.below { color: var(--below); background: var(--below-bg); font-weight: 600; }
+span.dev { padding: 0 4px; border-radius: 3px; }

@@ -10,6 +10,17 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Added
+
+- Team page: compare your team's period reports. Point it at the folder the
+  team shares its reports in (`claudit report -o <folder>`), pick a period,
+  and each member is set against the team median, on rates rather than
+  totals so heavy and light users compare: where the time goes, time per
+  turn, waiting on permission prompts, tool calls and failures, skills and
+  subagents per 100 turns, tokens, cache reads and cost per turn and per
+  active day; then who uses which skills, subagents, tools, activities and
+  models. Values far from the median (1.5× either way) are highlighted.
+
 ## [0.10.0] - 2026-10-11
 
 ### Added

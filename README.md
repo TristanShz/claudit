@@ -68,7 +68,8 @@ stop recording, run `claudit uninstall`.
   buttons on the session page).
 - **Team reports**: your usage over a period as JSON, aggregates only, to
   share with your team and compare (`claudit report --days 30 -o DIR`, or
-  **Export report** in the dashboard).
+  **Export report** in the dashboard), and a **Team** page that sets each
+  member against the team median to show where practices differ.
 
 ![Session detail page](docs/screenshots/session.png)
 
