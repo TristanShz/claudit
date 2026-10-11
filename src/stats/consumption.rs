@@ -78,7 +78,7 @@ pub(super) const SESSION_COLUMNS: FilterColumns = FilterColumns {
     model: Some("m.model"),
 };
 
-const TURN_COLUMNS: FilterColumns = FilterColumns {
+pub(super) const TURN_COLUMNS: FilterColumns = FilterColumns {
     time_us: "COALESCE(t.submit_at_us, t.start_at_us)",
     cwd: Some("s.cwd"),
     branch: Some("s.git_branch"),

@@ -63,6 +63,7 @@ fn app(state: AppState) -> Router {
         .route("/sessions", get(pages::sessions::handler))
         .route("/sessions/{id}", get(pages::session::handler))
         .route("/sessions/{id}/export", get(pages::session_export::handler))
+        .route("/report", get(pages::report_export::handler))
         .route(
             "/sessions/{id}/turns/{prompt_id}",
             get(pages::turn_trace::handler),

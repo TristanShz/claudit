@@ -66,6 +66,9 @@ stop recording, run `claudit uninstall`.
 - **Session export**: a session as Markdown, summary or full, to give to an
   AI and improve your skills (`claudit export <session> [--full]`, or the
   buttons on the session page).
+- **Team reports**: your usage over a period as JSON, aggregates only, to
+  share with your team and compare (`claudit report --days 30 -o DIR`, or
+  **Export report** in the dashboard).
 
 ![Session detail page](docs/screenshots/session.png)
 

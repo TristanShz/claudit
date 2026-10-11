@@ -17,6 +17,7 @@ pub mod paths;
 pub mod pricing;
 pub mod process;
 pub mod redact;
+pub mod report;
 pub mod secure_fs;
 pub mod shell;
 pub mod spool;

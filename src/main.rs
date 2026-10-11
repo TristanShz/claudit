@@ -51,6 +51,38 @@ enum Command {
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
     },
+    /// Report your usage over a period as JSON, to share with your team and
+    /// compare (aggregates only, unless --include-prompts).
+    Report {
+        /// First day included (YYYY-MM-DD, UTC). Default: --days before --to.
+        #[arg(long, conflicts_with = "days")]
+        from: Option<chrono::NaiveDate>,
+        /// Last day included (YYYY-MM-DD, UTC). Default: today.
+        #[arg(long)]
+        to: Option<chrono::NaiveDate>,
+        /// Number of days covered, ending with --to.
+        #[arg(long, default_value_t = claudit::report::DEFAULT_DAYS)]
+        days: u32,
+        /// Whose usage it is. Default: `git config user.name`.
+        #[arg(long)]
+        author: Option<String>,
+        /// Only sessions in this project directory (and below it).
+        #[arg(long)]
+        project: Option<String>,
+        /// Only sessions on this git branch.
+        #[arg(long)]
+        branch: Option<String>,
+        /// Only this model's usage.
+        #[arg(long)]
+        model: Option<String>,
+        /// Add every prompt you typed in the period (secrets redacted).
+        #[arg(long)]
+        include_prompts: bool,
+        /// Write to this file, or into this directory under a default name,
+        /// instead of standard output.
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
+    },
     /// Replace this binary with the latest release from GitHub.
     Update {
         /// Only report whether a newer release exists.
@@ -126,6 +158,35 @@ fn run(cli: Cli) -> Result<()> {
             full,
             output,
         } => export(&paths, &session, full, output.as_deref()),
+        Command::Report {
+            from,
+            to,
+            days,
+            author,
+            project,
+            branch,
+            model,
+            include_prompts,
+            output,
+        } => {
+            let today = chrono::Utc::now().date_naive();
+            // `--days` has a default, so it only counts without `--from`.
+            let days = from.is_none().then_some(days);
+            let options = claudit::report::ReportOptions {
+                author: match author {
+                    Some(author) => author,
+                    None => claudit::report::git_user_name().ok_or_else(|| {
+                        anyhow::anyhow!("no author: pass --author or set `git config user.name`")
+                    })?,
+                },
+                period: claudit::report::Period::resolve(from, to, days, today)?,
+                project,
+                branch,
+                model,
+                include_prompts,
+            };
+            report(&paths, &options, output.as_deref())
+        }
         Command::Update { check } => update(check),
     }
 }
@@ -239,6 +300,50 @@ fn export(
             eprintln!("Exported session {session_id} to {}.", path.display());
         }
         None => print!("{markdown}"),
+    }
+    Ok(())
+}
+
+fn report(
+    paths: &Paths,
+    options: &claudit::report::ReportOptions,
+    output: Option<&std::path::Path>,
+) -> Result<()> {
+    use claudit::report;
+    // Report what is pending too; stdout carries the report, so quietly.
+    if let Err(err) = claudit::ingest::catch_up(paths, &SystemClock) {
+        eprintln!("claudit: ingest failed, reporting on the archive as it is: {err:#}");
+    }
+    let conn = claudit::db::open(paths)?;
+    let loaded = claudit::activities::ActivityRules::load(paths);
+    if let Some(problem) = &loaded.problem {
+        eprintln!("claudit: activity rules file ignored: {problem}");
+    }
+    let built = report::build(
+        &conn,
+        options,
+        &loaded.rules,
+        claudit::pricing::PriceTable::builtin(),
+        chrono::Utc::now(),
+        &report::git_project_name,
+    )?;
+    let period = format!("{} to {}", built.period.from, built.period.to);
+    match output {
+        Some(output) => {
+            let path = report::write(&built, output)?;
+            eprintln!(
+                "Reported {} sessions of {} ({period}) to {}.",
+                built.totals.sessions,
+                built.author,
+                path.display()
+            );
+        }
+        None => println!("{}", serde_json::to_string_pretty(&built)?),
+    }
+    if options.include_prompts {
+        eprintln!(
+            "claudit: the report holds your prompts (secrets redacted); review it before sharing."
+        );
     }
     Ok(())
 }
