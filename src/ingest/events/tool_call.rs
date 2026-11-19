@@ -1,4 +1,6 @@
-//! Every write to `tool_calls`: the completed-call hooks (`PostToolUse`,
+//! Every write to `tool_calls` and `tool_call_payloads` (a call's input
+//! JSON and error text, kept apart so reports never scan them): the
+//! completed-call hooks (`PostToolUse`,
 //! `PostToolUseFailure`), `PreToolUse`, and the transcripts' `tool_use` /
 //! `tool_result` blocks, all upserting one row per `tool_use_id`.
 //!
@@ -54,7 +56,7 @@ pub(super) fn project(conn: &Connection, event: &RawEvent, outcome: Outcome) -> 
         Ok(call) => call,
         Err(malformed) => return Ok(malformed),
     };
-    let (bash_command, mcp_server) = derived_columns(&call.tool_name, call.tool_input.as_ref());
+    let derived = Derived::of(&call.tool_name, call.tool_input.as_ref());
     let (success, error) = match outcome {
         Outcome::Success => (1, None),
         Outcome::Failure => (0, call.error),
@@ -62,8 +64,8 @@ pub(super) fn project(conn: &Connection, event: &RawEvent, outcome: Outcome) -> 
     conn.execute(
         "INSERT INTO tool_calls (
              tool_use_id, session_id, prompt_id, agent_id, tool_name, mcp_server,
-             bash_command, tool_input, cwd, hook_post_at_us, hook_duration_ms, hook_success, error
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             bash_command, command_line, cwd, hook_post_at_us, hook_duration_ms, hook_success
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT(tool_use_id) DO UPDATE SET
              session_id       = excluded.session_id,
              prompt_id        = COALESCE(excluded.prompt_id, prompt_id),
@@ -71,26 +73,37 @@ pub(super) fn project(conn: &Connection, event: &RawEvent, outcome: Outcome) -> 
              tool_name        = excluded.tool_name,
              mcp_server       = excluded.mcp_server,
              bash_command     = excluded.bash_command,
-             tool_input       = COALESCE(excluded.tool_input, tool_input),
+             command_line     = COALESCE(excluded.command_line, command_line),
              cwd              = COALESCE(excluded.cwd, cwd),
              hook_post_at_us  = MIN(COALESCE(hook_post_at_us, excluded.hook_post_at_us),
                                     excluded.hook_post_at_us),
              hook_duration_ms = COALESCE(excluded.hook_duration_ms, hook_duration_ms),
-             hook_success     = excluded.hook_success,
-             error            = excluded.error",
+             hook_success     = excluded.hook_success",
         params![
             call.tool_use_id,
             event.session_id,
             call.prompt_id,
             call.agent_id,
             call.tool_name,
-            mcp_server,
-            bash_command,
-            call.tool_input.map(|input| input.to_string()),
+            derived.mcp_server,
+            derived.bash_command,
+            derived.command_line,
             call.cwd,
             event.received_at_us(),
             call.duration_ms,
             success,
+        ],
+    )?;
+    // The input is kept when this delivery has none; the error is this
+    // delivery's (a success clears it).
+    conn.execute(
+        "INSERT INTO tool_call_payloads (tool_use_id, tool_input, error) VALUES (?1, ?2, ?3)
+         ON CONFLICT(tool_use_id) DO UPDATE SET
+             tool_input = COALESCE(excluded.tool_input, tool_input),
+             error      = excluded.error",
+        params![
+            call.tool_use_id,
+            call.tool_input.map(|input| input.to_string()),
             error,
         ],
     )?;
@@ -145,18 +158,18 @@ pub(crate) fn record_transcript_result(
 /// Upserts an announced call, `pre_column` being the source's own `pre`
 /// column (a trusted name).
 fn upsert_announced(conn: &Connection, call: &AnnouncedCall, pre_column: &str) -> Result<()> {
-    let (bash_command, mcp_server) = derived_columns(call.tool_name, call.tool_input);
+    let derived = Derived::of(call.tool_name, call.tool_input);
     conn.prepare_cached(&format!(
         "INSERT INTO tool_calls (
                  tool_use_id, session_id, prompt_id, agent_id, tool_name, mcp_server,
-                 bash_command, tool_input, cwd, {pre_column}
+                 bash_command, command_line, cwd, {pre_column}
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(tool_use_id) DO UPDATE SET
                  prompt_id    = COALESCE(prompt_id, excluded.prompt_id),
                  agent_id     = COALESCE(agent_id, excluded.agent_id),
                  mcp_server   = COALESCE(mcp_server, excluded.mcp_server),
                  bash_command = COALESCE(bash_command, excluded.bash_command),
-                 tool_input   = COALESCE(tool_input, excluded.tool_input),
+                 command_line = COALESCE(command_line, excluded.command_line),
                  cwd          = COALESCE(cwd, excluded.cwd),
                  {pre_column} = MIN(COALESCE({pre_column}, excluded.{pre_column}),
                                     excluded.{pre_column})"
@@ -167,12 +180,20 @@ fn upsert_announced(conn: &Connection, call: &AnnouncedCall, pre_column: &str) -
         call.prompt_id,
         call.agent_id,
         call.tool_name,
-        mcp_server,
-        bash_command,
-        call.tool_input.map(Value::to_string),
+        derived.mcp_server,
+        derived.bash_command,
+        derived.command_line,
         call.cwd,
         call.at_us,
     ])?;
+    if let Some(input) = call.tool_input {
+        conn.prepare_cached(
+            "INSERT INTO tool_call_payloads (tool_use_id, tool_input) VALUES (?1, ?2)
+             ON CONFLICT(tool_use_id) DO UPDATE SET
+                 tool_input = COALESCE(tool_input, excluded.tool_input)",
+        )?
+        .execute(params![call.tool_use_id, input.to_string()])?;
+    }
     resolve_timing(conn, call.tool_use_id)
 }
 
@@ -205,20 +226,29 @@ fn resolve_timing(conn: &Connection, tool_use_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// The Bash leading command and the MCP server of a call, derived from its
-/// name and input.
-fn derived_columns<'a>(
-    tool_name: &'a str,
-    tool_input: Option<&Value>,
-) -> (Option<String>, Option<&'a str>) {
-    let bash_command = match tool_name {
-        "Bash" => tool_input
-            .and_then(|input| input.get("command"))
-            .and_then(Value::as_str)
-            .and_then(crate::shell::leading_command),
-        _ => None,
-    };
-    (bash_command, mcp_server(tool_name))
+/// The columns of a call derived from its name and input.
+struct Derived<'a> {
+    /// The whole command line of a Bash call.
+    command_line: Option<&'a str>,
+    /// Its leading command.
+    bash_command: Option<String>,
+    mcp_server: Option<&'a str>,
+}
+
+impl<'a> Derived<'a> {
+    fn of(tool_name: &'a str, tool_input: Option<&'a Value>) -> Self {
+        let command_line = match tool_name {
+            "Bash" => tool_input
+                .and_then(|input| input.get("command"))
+                .and_then(Value::as_str),
+            _ => None,
+        };
+        Self {
+            command_line,
+            bash_command: command_line.and_then(crate::shell::leading_command),
+            mcp_server: mcp_server(tool_name),
+        }
+    }
 }
 
 /// The server of an MCP tool, from its name `mcp__<server>__<tool>`. Server

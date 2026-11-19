@@ -90,7 +90,7 @@ pub(super) fn display_names(runs: &[SubagentRun]) -> std::collections::HashMap<S
 /// Filtered runs, oldest first.
 pub fn subagent_runs(conn: &Connection, filter: &Filter) -> Result<Vec<SubagentRun>> {
     let where_ = filter.sql(&RUN_COLUMNS)?;
-    load_runs(conn, &where_.clause, where_.params)
+    load_runs(conn, &where_.clause, where_.params, DESCRIPTION)
 }
 
 /// Every run of one session, oldest first.
@@ -99,13 +99,16 @@ pub fn session_subagent_runs(conn: &Connection, session_id: &str) -> Result<Vec<
         conn,
         "r.session_id = ?",
         vec![Value::Text(session_id.to_owned())],
+        DESCRIPTION,
     )
 }
 
 /// Subagent types by runs, then total duration (descending), then name.
 pub fn subagent_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<SubagentTypeStat>> {
     let mut by_type: BTreeMap<String, (SubagentTypeStat, BTreeMap<String, u64>)> = BTreeMap::new();
-    for run in subagent_runs(conn, filter)? {
+    let where_ = filter.sql(&RUN_COLUMNS)?;
+    // A ranking names no run: skip the descriptions, one payload read each.
+    for run in load_runs(conn, &where_.clause, where_.params, "NULL")? {
         let (stat, models) = by_type.entry(run.agent_type.clone()).or_insert_with(|| {
             (
                 SubagentTypeStat {
@@ -153,7 +156,19 @@ pub fn subagent_ranking(conn: &Connection, filter: &Filter) -> Result<Vec<Subage
     Ok(stats)
 }
 
-fn load_runs(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec<SubagentRun>> {
+/// SQL over `subagent_runs r`: the description its Agent call gave the run.
+const DESCRIPTION: &str = "(SELECT json_extract(p.tool_input, '$.description')
+     FROM tool_call_payloads p
+     WHERE p.tool_use_id = r.parent_tool_use_id AND json_valid(p.tool_input))";
+
+/// The runs matching `clause`, oldest first, each described by the SQL
+/// expression `description` ([`DESCRIPTION`], or `NULL` when unused).
+fn load_runs(
+    conn: &Connection,
+    clause: &str,
+    params: Vec<Value>,
+    description: &str,
+) -> Result<Vec<SubagentRun>> {
     let sql = format!(
         "WITH runs AS (
              SELECT r.agent_id, r.session_id, r.prompt_id, r.agent_type, r.parent_tool_use_id,
@@ -162,9 +177,7 @@ fn load_runs(conn: &Connection, clause: &str, params: Vec<Value>) -> Result<Vec<
                               GROUP BY m.model ORDER BY COUNT(*) DESC, m.model LIMIT 1)) AS model,
                     r.started_at_us,
                     r.total_duration_ms AS duration_ms,
-                    (SELECT json_extract(tc.tool_input, '$.description') FROM tool_calls tc
-                     WHERE tc.tool_use_id = r.parent_tool_use_id
-                       AND json_valid(tc.tool_input)) AS description,
+                    {description} AS description,
                     COALESCE(r.total_tool_use_count,
                              (SELECT COUNT(*) FROM tool_calls tc
                               WHERE tc.agent_id = r.agent_id AND tc.post_at_us IS NOT NULL))

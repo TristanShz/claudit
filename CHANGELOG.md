@@ -10,6 +10,16 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+### Changed
+
+- The dashboard opens much faster on a large archive: on a 1.4 GB archive
+  the overview went from about a minute to a few seconds when the archive
+  is not in the disk cache. Tool calls' input and error text now live in
+  their own table, so the reports no longer read them. The archive is
+  migrated once, on the first run after the update (a few seconds); the
+  space the old table used is reused by later ingests rather than given
+  back, so the file is larger until then.
+
 ## [0.11.0] - 2026-10-11
 
 ### Added

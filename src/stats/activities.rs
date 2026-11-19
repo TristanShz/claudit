@@ -127,9 +127,7 @@ fn breakdown_where(
     params: Vec<Value>,
 ) -> Result<ActivityBreakdown> {
     let sql = format!(
-        "SELECT tc.tool_name, tc.mcp_server, tc.bash_command,
-                CASE WHEN tc.tool_name = 'Bash' AND json_valid(tc.tool_input)
-                     THEN json_extract(tc.tool_input, '$.command') END,
+        "SELECT tc.tool_name, tc.mcp_server, tc.bash_command, tc.command_line,
                 tc.success, tc.hook_duration_ms,
                 date(tc.post_at_us / 1000000, 'unixepoch')
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
@@ -146,8 +144,7 @@ fn breakdown_where(
         let tool_name: String = row.get(0)?;
         let mcp_server: Option<String> = row.get(1)?;
         let bash_command: Option<String> = row.get(2)?;
-        // `command` may be absent or not a string.
-        let command: Option<String> = row.get::<_, Option<String>>(3).unwrap_or(None);
+        let command: Option<String> = row.get(3)?;
         let failed = row.get::<_, Option<i64>>(4)? == Some(0);
         let duration_ms = row.get::<_, Option<i64>>(5)?.map(|ms| ms.max(0) as u64);
         let day: String = row.get(6)?;
