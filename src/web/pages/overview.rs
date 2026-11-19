@@ -143,10 +143,13 @@ pub(in crate::web) async fn handler(
         let frame = Frame::load(&conn, &state, filters, "/", true)?;
 
         let tool_ranking = tools::tool_ranking(&conn, &filter)?;
-        let breakdown = time::time_breakdown(&conn, &filter)?;
+        // The turns' times feed both the time section and the session rows.
+        let turn_times = time::turn_times(&conn, &filter)?;
+        let breakdown = time::breakdown_of(&turn_times);
         let time_note = TimeNote::new(&time::time_coverage(&conn, &filter)?);
+        let consumption = consumption::consumption(&conn, &filter)?;
         let kpis = Kpis::new(
-            consumption::consumption(&conn, &filter)?,
+            consumption,
             &breakdown,
             &time_note,
             &tool_ranking,
@@ -175,9 +178,10 @@ pub(in crate::web) async fn handler(
             .into_iter()
             .map(|line| (line.key, line.cost))
             .collect();
-        let all_sessions = sessions::session_list(&conn, &filter)?;
-        let more_sessions = all_sessions.len().saturating_sub(RECENT_SESSIONS);
-        let recent = all_sessions.into_iter().take(RECENT_SESSIONS).collect();
+        let recent =
+            sessions::sessions_with_times(&conn, &filter, &turn_times, Some(RECENT_SESSIONS))?;
+        // `consumption` counts the sessions `session_list` would return.
+        let more_sessions = (consumption.sessions as usize).saturating_sub(recent.len());
 
         let mut tools = rows::tool_rows(tool_ranking);
         let mut skills = rows::skill_rows(skills::skill_ranking(&conn, &filter)?);

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use super::Filter;
 use super::consumption::{SESSION_COLUMNS, TokenTotals};
-use super::time::{self, TimeSplit};
+use super::time::{self, TimeSplit, TurnTime};
 use crate::clock;
 
 /// One session's headline metrics.
@@ -50,9 +50,34 @@ pub(super) const IMPORTED: &str =
 /// branch match the session; a model filter keeps the sessions that used
 /// the model (and only its tokens).
 pub fn session_list(conn: &Connection, filter: &Filter) -> Result<Vec<SessionSummary>> {
+    sessions_with_times(conn, filter, &time::turn_times(conn, filter)?, None)
+}
+
+/// [`session_list`] for a caller that already has the filter's
+/// [`time::turn_times`] (`turns`), cut to the `limit` most recent sessions
+/// when one is given.
+pub fn sessions_with_times(
+    conn: &Connection,
+    filter: &Filter,
+    turns: &[TurnTime],
+    limit: Option<usize>,
+) -> Result<Vec<SessionSummary>> {
     let where_ = filter.sql(&SESSION_COLUMNS)?;
+    // The sessions are picked (and cut to `limit`) first, materialized, so
+    // the per-session subqueries run only for the ones returned.
     let sql = format!(
-        "SELECT s.session_id, s.cwd, s.git_branch, s.version, s.first_at_us, s.last_at_us,
+        "WITH page (session_id, cwd, git_branch, version, first_at_us, last_at_us,
+                    input_tokens, output_tokens, cache_write_tokens, cache_read_tokens)
+         AS MATERIALIZED (
+             SELECT s.session_id, s.cwd, s.git_branch, s.version, s.first_at_us, s.last_at_us,
+                    {}
+             FROM sessions s LEFT JOIN api_messages m ON m.session_id = s.session_id
+             WHERE s.first_at_us IS NOT NULL AND {}
+             GROUP BY s.session_id
+             ORDER BY s.first_at_us DESC, s.session_id
+             LIMIT {}
+         )
+         SELECT s.session_id, s.cwd, s.git_branch, s.version, s.first_at_us, s.last_at_us,
                 (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.session_id),
                 (SELECT t.prompt_text FROM turns t
                   WHERE t.session_id = s.session_id AND t.prompt_text IS NOT NULL
@@ -60,13 +85,13 @@ pub fn session_list(conn: &Connection, filter: &Filter) -> Result<Vec<SessionSum
                 (SELECT COUNT(*) FROM tool_calls tc
                   WHERE tc.session_id = s.session_id AND tc.post_at_us IS NOT NULL),
                 {IMPORTED},
-                {}
-         FROM sessions s LEFT JOIN api_messages m ON m.session_id = s.session_id
-         WHERE s.first_at_us IS NOT NULL AND {}
-         GROUP BY s.session_id
+                s.input_tokens, s.output_tokens, s.cache_write_tokens, s.cache_read_tokens
+         FROM page s
          ORDER BY s.first_at_us DESC, s.session_id",
         TokenTotals::SUMS,
         where_.clause,
+        // SQLite reads a negative LIMIT as no limit.
+        limit.map_or(-1, |n| n.min(i64::MAX as usize) as i64),
         INJECTED = super::prompt::INJECTED_SQL,
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -90,8 +115,8 @@ pub fn session_list(conn: &Connection, filter: &Filter) -> Result<Vec<SessionSum
     })?;
     let mut sessions: Vec<SessionSummary> = rows.collect::<Result<_, _>>()?;
     let mut times: HashMap<String, TimeSplit> = HashMap::new();
-    for turn in time::turn_times(conn, filter)? {
-        *times.entry(turn.session_id).or_default() += turn.split;
+    for turn in turns {
+        *times.entry(turn.session_id.clone()).or_default() += turn.split;
     }
     for session in &mut sessions {
         session.time = times.remove(&session.session_id).unwrap_or_default();

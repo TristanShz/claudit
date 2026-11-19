@@ -76,3 +76,112 @@ pub fn schema_version(conn: &Connection) -> Result<Option<String>> {
         )
         .optional()?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Applies the migrations before `id` to a fresh in-memory archive.
+    fn archive_before(id: &str) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(BOOTSTRAP).unwrap();
+        for (applied, sql) in MIGRATIONS.iter().take_while(|(m, _)| *m != id) {
+            conn.execute_batch(sql).unwrap();
+            conn.execute(
+                "INSERT INTO schema_migrations (id, applied_at_us) VALUES (?1, 0)",
+                [applied],
+            )
+            .unwrap();
+        }
+        conn
+    }
+
+    /// `tool_use_id`, `bash_command`, `command_line`, `hook_duration_ms`,
+    /// `success`.
+    type CallRow = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+    );
+
+    #[test]
+    fn splitting_tool_call_payloads_keeps_the_calls_already_archived() {
+        let mut conn = archive_before("0027_tool_call_payloads");
+        conn.execute_batch(
+            r#"INSERT INTO tool_calls
+                   (tool_use_id, session_id, prompt_id, tool_name, bash_command, tool_input,
+                    post_at_us, hook_post_at_us, hook_duration_ms, success, error)
+               VALUES
+                   ('bash', 's', 'p', 'Bash', 'cargo', '{"command":"cargo test --all"}',
+                    20, 20, 1500, 0, 'Exit code 1'),
+                   ('read', 's', 'p', 'Read', NULL, '{"file_path":"/a","command":"not bash"}',
+                    30, 30, 5, 1, NULL),
+                   ('odd', 's', 'p', 'Bash', NULL, '{"command":42}', 40, 40, 1, 1, NULL),
+                   ('bare', 's', 'p', 'Bash', NULL, NULL, NULL, NULL, NULL, NULL, NULL);"#,
+        )
+        .unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let calls: Vec<CallRow> = conn
+            .prepare(
+                "SELECT tool_use_id, bash_command, command_line, hook_duration_ms, success
+                 FROM tool_calls ORDER BY rowid",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let text = |s: &str| Some(s.to_owned());
+        assert_eq!(
+            calls,
+            [
+                (
+                    "bash".to_owned(),
+                    text("cargo"),
+                    text("cargo test --all"),
+                    Some(1500),
+                    Some(0)
+                ),
+                ("read".to_owned(), None, None, Some(5), Some(1)),
+                ("odd".to_owned(), None, None, Some(1), Some(1)),
+                ("bare".to_owned(), None, None, None, None),
+            ]
+        );
+
+        let payloads: Vec<(String, Option<String>, Option<String>)> = conn
+            .prepare("SELECT tool_use_id, tool_input, error FROM tool_call_payloads ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            payloads,
+            [
+                (
+                    "bash".to_owned(),
+                    text(r#"{"command":"cargo test --all"}"#),
+                    text("Exit code 1")
+                ),
+                (
+                    "read".to_owned(),
+                    text(r#"{"file_path":"/a","command":"not bash"}"#),
+                    None
+                ),
+                ("odd".to_owned(), text(r#"{"command":42}"#), None),
+            ]
+        );
+    }
+}

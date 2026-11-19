@@ -35,6 +35,7 @@ pub const DERIVED_TABLES: &[&str] = &[
     "skill_invocations",
     "subagent_events",
     "subagent_runs",
+    "tool_call_payloads",
     "tool_calls",
     "sessions",
     "turns",

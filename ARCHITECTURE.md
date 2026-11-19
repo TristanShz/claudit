@@ -167,6 +167,14 @@ so any ingest order and a reingest give the same row:
 Identity columns (prompt, agent, input, cwd) are filled by whichever source
 comes first; `PostToolUse` overwrites them with its own.
 
+The table holds only what the aggregate reports read, so that scanning it
+stays cheap on a large archive: a call's input JSON and error text, most of
+its bytes, live in `tool_call_payloads` (below). Its indexes cover the
+reports that run on every page load: `tool_calls_by_post` the tool ranking,
+`tool_calls_by_prompt` the time decomposition's per-turn lookup,
+`tool_calls_by_session` and `tool_calls_by_agent` the per-session and
+per-subagent call counts.
+
 | Column | Meaning |
 | --- | --- |
 | `tool_use_id` | PK. |
@@ -175,7 +183,7 @@ comes first; `PostToolUse` overwrites them with its own.
 | `tool_name` | E.g. `Bash`, `Read`, `mcp__github__create_issue`. |
 | `mcp_server` | The server part of an `mcp__<server>__<tool>` name. |
 | `bash_command` | Leading command of a Bash call (`shell::leading_command`). |
-| `tool_input` | Redacted input JSON. |
+| `command_line` | Whole command line of a Bash call (the input's `command`, when a string): what the activity rules and the command keys are derived from. |
 | `cwd` | Working directory of the call. |
 | `pre_at_us`, `post_at_us` | Effective: `PreToolUse` and `PostToolUse(Failure)` receive times, or the `tool_use` and `tool_result` entry timestamps. |
 | `duration_ms` | Effective: execution time as reported by Claude Code (excludes permission prompts), or the transcript estimate `post − pre`. |
@@ -183,6 +191,16 @@ comes first; `PostToolUse` overwrites them with its own.
 | `timing_source` | `hook` or `transcript`: where the effective timing comes from (`transcript` = estimated duration). |
 | `hook_pre_at_us`, `hook_post_at_us`, `hook_duration_ms`, `hook_success` | What the hooks recorded. |
 | `transcript_pre_at_us`, `transcript_post_at_us`, `transcript_success` | What the transcript recorded (never the result's content). |
+
+**`tool_call_payloads`**: the bulky text of a call, key `tool_use_id`, one
+row per call that has any. Written with `tool_calls`
+(`events::tool_call`), read only where a single call or run is shown (a
+turn's trace, a subagent run's description, whether a `TaskOutput` call
+blocks on a subagent), never by a report that scans the calls.
+
+| Column | Meaning |
+| --- | --- |
+| `tool_input` | Redacted input JSON. |
 | `error` | Error text of a hook-reported failure (redacted). Not taken from transcripts, whose error text is the tool's output. |
 
 **`permission_requests`**: one row per `PermissionRequest`. PK

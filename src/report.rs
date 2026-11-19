@@ -399,7 +399,7 @@ pub fn build(
     let coverage = time::time_coverage(conn, &filter)?;
     let turn_times = time::turn_times(conn, &filter)?;
     let tool_ranking = tools::tool_ranking(conn, &filter)?;
-    let session_list = sessions::session_list(conn, &filter)?;
+    let session_list = sessions::sessions_with_times(conn, &filter, &turn_times, None)?;
     let session_costs: HashMap<String, pricing::Cost> =
         cost::cost_by_session(conn, &filter, prices)?
             .into_iter()

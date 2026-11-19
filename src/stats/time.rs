@@ -231,11 +231,14 @@ pub struct TimeCoverage {
 /// main thread waits for that run to finish). Anything else (a `sleep`, a
 /// `Monitor`) cannot be told apart reliably and stays tool time.
 const WAITS_ON_SUBAGENT: &str = "(tc.tool_name IN ('Agent', 'Task')
-     OR (tc.tool_name = 'TaskOutput' AND json_valid(tc.tool_input)
-         AND COALESCE(json_extract(tc.tool_input, '$.block'), 1)
-         AND EXISTS (SELECT 1 FROM subagent_runs r
-                     WHERE r.session_id = tc.session_id
-                       AND r.agent_id = json_extract(tc.tool_input, '$.task_id'))))";
+     OR (tc.tool_name = 'TaskOutput'
+         AND EXISTS (SELECT 1 FROM tool_call_payloads p
+                     WHERE p.tool_use_id = tc.tool_use_id AND json_valid(p.tool_input)
+                       AND COALESCE(json_extract(p.tool_input, '$.block'), 1)
+                       AND EXISTS (SELECT 1 FROM subagent_runs r
+                                   WHERE r.session_id = tc.session_id
+                                     AND r.agent_id
+                                         = json_extract(p.tool_input, '$.task_id')))))";
 
 /// Turn start and end: the `UserPromptSubmit` and `Stop` receive times.
 /// Transcript times are never used for time: a transcript's span includes
@@ -268,21 +271,26 @@ pub fn session_turn_times(conn: &Connection, session_id: &str) -> Result<Vec<Tur
 
 /// The split summed over the filtered turns, overall and per day.
 pub fn time_breakdown(conn: &Connection, filter: &Filter) -> Result<TimeBreakdown> {
-    let turns = turn_times(conn, filter)?;
+    Ok(breakdown_of(&turn_times(conn, filter)?))
+}
+
+/// The split summed over `turns` (as [`turn_times`] returns them), overall
+/// and per day: [`time_breakdown`] for a caller that already has the turns.
+pub fn breakdown_of(turns: &[TurnTime]) -> TimeBreakdown {
     let mut total = TimeSplit::default();
     let mut days: BTreeMap<NaiveDate, TimeSplit> = BTreeMap::new();
-    for turn in &turns {
+    for turn in turns {
         total += turn.split;
         *days.entry(turn.start.date_naive()).or_default() += turn.split;
     }
-    Ok(TimeBreakdown {
+    TimeBreakdown {
         turns: turns.len() as u64,
         total,
         by_day: days
             .into_iter()
             .map(|(day, split)| DayTime { day, split })
             .collect(),
-    })
+    }
 }
 
 /// Recorded vs imported sessions in the filter (sessions as in

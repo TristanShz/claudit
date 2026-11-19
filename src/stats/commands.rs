@@ -175,10 +175,7 @@ fn ranking_where(
     params: Vec<Value>,
 ) -> Result<CommandRanking> {
     let sql = format!(
-        "SELECT tc.bash_command,
-                CASE WHEN json_valid(tc.tool_input)
-                     THEN json_extract(tc.tool_input, '$.command') END,
-                tc.success, tc.hook_duration_ms
+        "SELECT tc.bash_command, tc.command_line, tc.success, tc.hook_duration_ms
          FROM tool_calls tc LEFT JOIN sessions s ON s.session_id = tc.session_id
          WHERE tc.post_at_us IS NOT NULL AND tc.tool_name = 'Bash' AND {clause}"
     );
@@ -190,8 +187,7 @@ fn ranking_where(
     let mut groups: HashMap<String, Group> = HashMap::new();
     while let Some(row) = rows.next()? {
         let bash_command: Option<String> = row.get(0)?;
-        // `command` may be absent or not a string.
-        let command: Option<String> = row.get::<_, Option<String>>(1).unwrap_or(None);
+        let command: Option<String> = row.get(1)?;
         // No command at all (an empty or comment-only line): no key.
         if bash_command.is_none()
             && command

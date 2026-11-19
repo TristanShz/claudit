@@ -378,10 +378,11 @@ fn load_calls(
     rules: &ActivityRules,
 ) -> Result<Vec<Call>> {
     let mut stmt = conn.prepare(
-        "SELECT tool_use_id, agent_id, tool_name, mcp_server, bash_command, tool_input,
+        "SELECT tc.tool_use_id, agent_id, tool_name, mcp_server, bash_command, p.tool_input,
                 hook_pre_at_us, hook_post_at_us, hook_duration_ms, transcript_pre_at_us,
-                CASE WHEN post_at_us IS NOT NULL THEN success END, error
-         FROM tool_calls
+                CASE WHEN post_at_us IS NOT NULL THEN success END, p.error
+         FROM tool_calls tc
+         LEFT JOIN tool_call_payloads p ON p.tool_use_id = tc.tool_use_id
          WHERE session_id = ?1 AND prompt_id = ?2",
     )?;
     let mut classifier = Classifier::new(rules);
@@ -547,10 +548,7 @@ fn turn_rows(
     }
 
     let mut stmt = conn.prepare(
-        "SELECT prompt_id, tool_name, mcp_server, bash_command,
-                CASE WHEN tool_name = 'Bash' AND json_valid(tool_input)
-                     THEN json_extract(tool_input, '$.command') END,
-                success
+        "SELECT prompt_id, tool_name, mcp_server, bash_command, command_line, success
          FROM tool_calls
          WHERE session_id = ?1 AND post_at_us IS NOT NULL AND prompt_id IS NOT NULL
            AND (?2 IS NULL OR prompt_id = ?2)",
@@ -565,7 +563,7 @@ fn turn_rows(
         let tool_name: String = row.get(1)?;
         let mcp_server: Option<String> = row.get(2)?;
         let bash_command: Option<String> = row.get(3)?;
-        let command: Option<String> = row.get::<_, Option<String>>(4).unwrap_or(None);
+        let command: Option<String> = row.get(4)?;
         let failed = row.get::<_, Option<i64>>(5)? == Some(0);
         let turn = &mut turns[i];
         turn.tool_calls += 1;
