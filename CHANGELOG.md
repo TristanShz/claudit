@@ -10,6 +10,8 @@ migrates the archive automatically.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-19
+
 ### Changed
 
 - The dashboard opens much faster on a large archive: on a 1.4 GB archive
@@ -345,7 +347,8 @@ First public release.
 - Prebuilt macOS binaries (arm64 and x86_64) published on each tag, and
   `cargo install --git https://github.com/TristanShz/claudit`.
 
-[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/TristanShz/claudit/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/TristanShz/claudit/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/TristanShz/claudit/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/TristanShz/claudit/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/TristanShz/claudit/compare/v0.8.0...v0.9.0
